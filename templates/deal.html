@@ -9,7 +9,7 @@
   <div class="deal-left">
     <div class="score">{{ '%g' % deal.score }}</div>
     <div class="fresh {{ deal.freshness.value }}">{{ deal.freshness.label }}</div>
-    <div class="seen">{{ deal.age_display }}</div>
+    <div class="seen"><time datetime="{{ deal.last_seen.isoformat() }}">{{ deal.age_display }}</time></div>
   </div>
 
   <div class="deal-main">
@@ -30,7 +30,7 @@
       <span>{{ deal.condition.replace('_', ' ') | lower }}</span>
       {% if deal.seller_name %}<span>{{ deal.seller_name }}</span>{% endif %}
       <span class="src">{{ deal.source }}</span>
-      <span>first seen {{ deal.first_seen | ago }}</span>
+      <span>first seen <time datetime="{{ deal.first_seen.isoformat() }}">{{ deal.first_seen | ago }}</time></span>
     </div>
 
     {% if deal.flags %}
@@ -74,7 +74,7 @@
       {% for point in history %}
         {% set pct = 100 if hi == lo else ((point.landed_usd - lo) / (hi - lo) * 100) %}
         <div class="bar" style="height: {{ 12 + pct * 0.78 }}%"
-             title="{{ point.seen_at }} — ${{ '%,.0f' % point.landed_usd }}"></div>
+             title="{{ point.seen_at }} — {{ point.landed_usd | money }}"></div>
       {% endfor %}
     </div>
   {% endif %}
@@ -87,7 +87,7 @@
     <tbody>
       {% for point in history %}
         <tr>
-          <td class="tiny">{{ point.seen_at }}</td>
+          <td class="tiny"><time data-absolute="1">{{ point.seen_at }}</time></td>
           <td class="num big">{{ point.landed_usd | money }}</td>
           <td class="num">{{ '%.2f' % point.sticker_local }} {{ deal.currency }}</td>
           <td class="num tiny">{{ '%.4f' % point.fx_rate if point.fx_rate else '—' }}</td>

@@ -22,3 +22,6 @@ data/fx_cache.json
 
 # Demo database — regenerate with: python seed_demo.py
 data/demo.db
+
+# Static export output — regenerate with: python export_site.py
+site/

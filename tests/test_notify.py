@@ -565,11 +565,21 @@ class TestChannelSelection:
     def test_configured_channels_are_used_when_not_dry_running(
         self, config, monkeypatch
     ):
+        """Every enabled channel is constructed; `dispatch` then skips the ones
+        without credentials, so an unconfigured channel is reported as skipped
+        rather than silently missing."""
         monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://real/hook")
         monkeypatch.setenv("NTFY_TOPIC", "real-topic")
+        for name in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_TO"):
+            monkeypatch.delenv(name, raising=False)
 
-        names = [n.name for n in build_notifiers(config, dry_run=False)]
-        assert names == ["discord", "ntfy"]
+        notifiers = build_notifiers(config, dry_run=False)
+        by_name = {n.name: n for n in notifiers}
+
+        assert by_name["discord"].is_configured() is True
+        assert by_name["ntfy"].is_configured() is True
+        assert by_name["email"].is_configured() is False
+        assert "console" not in by_name, "a real channel is configured, so no fallback"
 
     def test_falls_back_to_console_when_nothing_is_configured(
         self, config, monkeypatch

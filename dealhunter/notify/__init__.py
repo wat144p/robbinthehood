@@ -17,6 +17,7 @@ from ..config import Config
 from .base import Digest, Notifier, NotifyResult, dispatch
 from .console import ConsoleNotifier
 from .discord import DiscordNotifier
+from .email_channel import EmailNotifier
 from .ntfy import NtfyNotifier
 from .render import AlertContent, build_alert, explain_regional_advantage
 from .router import RoutingDecision, route, should_send_digest
@@ -26,6 +27,7 @@ __all__ = [
     "ConsoleNotifier",
     "Digest",
     "DiscordNotifier",
+    "EmailNotifier",
     "NotifyResult",
     "Notifier",
     "NtfyNotifier",
@@ -65,6 +67,10 @@ def build_notifiers(config: Config, dry_run: bool = False) -> list[Notifier]:
                 topic_env=ntfy_cfg.get("topic_env", "NTFY_TOPIC"),
             )
         )
+
+    email_cfg = channels.get("email") or {}
+    if email_cfg.get("enabled", True):
+        notifiers.append(EmailNotifier())
 
     # If nothing is actually configured, fall back to stdout rather than doing
     # the work and silently discarding the results.

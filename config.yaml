@@ -346,6 +346,20 @@ notification:
       # Use a long random string, not "laptop-deals". Self-host by changing
       # `server` if you'd rather not trust the public instance.
 
+    email:
+      enabled: true
+      # Plain SMTP, stdlib only. Reads these from the environment:
+      #   SMTP_HOST  SMTP_PORT  SMTP_USER  SMTP_PASSWORD  EMAIL_TO  [EMAIL_FROM]
+      #
+      # Gmail: you MUST use an app password, not your Google password —
+      # Google blocks the latter for SMTP. Turn on 2FA, then generate one at
+      # myaccount.google.com/apppasswords.
+      #   SMTP_HOST=smtp.gmail.com   SMTP_PORT=587
+      #
+      # Port 465 = implicit TLS, 587 = STARTTLS. The code picks the right one
+      # from the port, which is the part people usually get wrong.
+      # EMAIL_TO accepts a comma-separated list.
+
 # -----------------------------------------------------------------------------
 # Known price floors (landed USD) and target models
 # -----------------------------------------------------------------------------

@@ -43,6 +43,16 @@ def _open():
     return Store(app.config["DEALS_DB"])
 
 
+def _static_export() -> bool:
+    """True when rendering for the static snapshot.
+
+    Passed explicitly to templates rather than read from Flask's `config`,
+    because several views pass the dealhunter Config object under that same
+    name — and only one of the two has a .get() method.
+    """
+    return bool(app.config.get("STATIC_EXPORT"))
+
+
 def _config():
     if app.config["DEALS_CONFIG"] is None:
         app.config["DEALS_CONFIG"] = load_config()
@@ -79,6 +89,7 @@ def board():
         include_stale=request.args.get("stale") == "1",
         min_score=request.args.get("min_score", ""),
         active="board",
+        static_export=_static_export(),
     )
 
 
@@ -94,6 +105,7 @@ def changes():
     return render_template(
         "changes.html", changes=data, hours=hours, latest_run=latest_run,
         now=datetime.now(timezone.utc), active="changes",
+        static_export=_static_export(),
     )
 
 
@@ -108,6 +120,7 @@ def models():
     return render_template(
         "models.html", watches=watches, config=config, latest_run=latest_run,
         now=datetime.now(timezone.utc), active="models",
+        static_export=_static_export(),
     )
 
 
@@ -117,6 +130,7 @@ def health_page():
         data = health(store)
     return render_template(
         "health.html", health=data, now=datetime.now(timezone.utc), active="health",
+        static_export=_static_export(),
     )
 
 
@@ -141,6 +155,7 @@ def deal(fingerprint: str):
     return render_template(
         "deal.html", deal=match, history=history,
         now=datetime.now(timezone.utc), active="board",
+        static_export=_static_export(),
     )
 
 

@@ -28,7 +28,9 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write        # needed to commit the database back
+  contents: write        # commit the database back
+  pages: write           # publish the dashboard snapshot
+  id-token: write        # required by actions/deploy-pages
 
 jobs:
   hunt:
@@ -58,6 +60,11 @@ jobs:
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           NTFY_TOPIC:          ${{ secrets.NTFY_TOPIC }}
+          SMTP_HOST:           ${{ secrets.SMTP_HOST }}
+          SMTP_PORT:           ${{ secrets.SMTP_PORT }}
+          SMTP_USER:           ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD:       ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO:            ${{ secrets.EMAIL_TO }}
         run: |
           python run.py --once \
             ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
@@ -96,6 +103,22 @@ jobs:
 
           echo "::warning::Could not push state after 3 attempts."
 
+      # ---------------------------------------------------------------------
+      # Publish the dashboard snapshot so it is readable from a phone, from
+      # anywhere, without your laptop being on.
+      # ---------------------------------------------------------------------
+      - name: Build the dashboard snapshot
+        if: always()
+        run: |
+          pip install -r requirements-dashboard.txt
+          python export_site.py --db data/deals.db --out site
+
+      - name: Upload the snapshot
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
       - name: Compact the database monthly
         # The DB lives in git forever, so old history would bloat the repo.
         # Pruning on the 1st keeps it small without losing anything current.
@@ -104,3 +127,32 @@ jobs:
           if [ "$(date -u +%d)" = "01" ]; then
             python run.py --prune --once --dry-run --offline --source ebay || true
           fi
+
+  # ---------------------------------------------------------------------------
+  # Deploy the snapshot to GitHub Pages.
+  #
+  # A separate job because actions/deploy-pages requires its own `github-pages`
+  # environment. It runs even when the hunt job failed, so a broken source
+  # still leaves you with a readable (if unchanged) page rather than a 404.
+  #
+  # ONE-TIME SETUP: repo Settings -> Pages -> Source: "GitHub Actions".
+  # Without that, this job fails with a fairly opaque permissions error.
+  #
+  # PRIVACY: on a public repo the published URL is public, and so is the
+  # committed database. Nothing here is a credential — secrets stay in Actions
+  # secrets and never reach the page — but the listings you are tracking would
+  # be visible to anyone with the URL. The pages carry a noindex hint so they
+  # do not turn up in search results. For a genuinely private page you need a
+  # private repo with GitHub Pro, or host the snapshot somewhere else.
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: hunt
+    if: always()
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -23,13 +23,19 @@
 
   <div class="status">
     {% if latest_run %}
-      <span class="sweep">last sweep <strong>{{ latest_run | ago }}</strong></span>
+      {# The datetime attribute lets the static export recompute this in the
+         browser, so a snapshot read hours later doesn't claim "2h ago". #}
+      <span class="sweep">last sweep
+        <strong><time datetime="{{ latest_run.isoformat() }}">{{ latest_run | ago }}</time></strong>
+      </span>
     {% else %}
       <span class="sweep warn">no completed sweep yet</span>
     {% endif %}
-    <label class="refresh">
-      <input type="checkbox" id="autorefresh"> auto
-    </label>
+    {% if not static_export %}
+      <label class="refresh">
+        <input type="checkbox" id="autorefresh"> auto
+      </label>
+    {% endif %}
   </div>
 </header>
 
@@ -46,8 +52,10 @@
 <script>
   // Auto-refresh every 2 minutes. Off by default and remembered, because a
   // page that reloads while you're reading a spec line is infuriating.
+  // Absent from the static export, where there is nothing to refresh into.
   (function () {
     var box = document.getElementById('autorefresh');
+    if (!box) return;
     var timer = null;
 
     function apply(on) {

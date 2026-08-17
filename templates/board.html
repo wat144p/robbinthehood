@@ -13,6 +13,21 @@
   </p>
 </div>
 
+{% if static_export %}
+  {# A static snapshot has no server to submit a form to, so the views you
+     would reach by filtering are pre-rendered and linked instead. #}
+  <nav class="staticnav">
+    <a href="index.html"    class="{{ 'on' if sort == 'score' and not include_stale }}">Best score</a>
+    <a href="cheapest.html" class="{{ 'on' if sort == 'price' }}">Cheapest landed</a>
+    <a href="newest.html"   class="{{ 'on' if sort == 'newest' }}">Newest arrivals</a>
+    <a href="moved.html"    class="{{ 'on' if sort == 'moved' }}">Biggest price move</a>
+    <a href="all.html"      class="{{ 'on' if include_stale }}">Include stale</a>
+  </nav>
+  <p class="hint">
+    <strong>{{ counts.live }}</strong> confirmed in the latest sweep{% if counts.total > counts.live %},
+    {{ counts.total - counts.live }} not seen since an earlier one{% endif %}.
+  </p>
+{% else %}
 <form class="filters" method="get">
   <label>Region
     <select name="region" onchange="this.form.submit()">
@@ -53,6 +68,7 @@
     {% endif %}
   </span>
 </form>
+{% endif %}
 
 {% if not deals %}
   <div class="empty">
@@ -76,7 +92,9 @@ python dashboard.py --db data/demo.db</pre>
     <div class="deal-left">
       <div class="score" title="0-100 score">{{ '%g' % deal.score }}</div>
       <div class="fresh {{ deal.freshness.value }}">{{ deal.freshness.label }}</div>
-      <div class="seen">{{ deal.age_display }}</div>
+      <div class="seen">
+        <time datetime="{{ deal.last_seen.isoformat() }}">{{ deal.age_display }}</time>
+      </div>
     </div>
 
     <div class="deal-main">
