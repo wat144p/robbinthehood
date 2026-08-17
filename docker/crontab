@@ -1,0 +1,10 @@
+# Every 8 hours, matching the GitHub Actions schedule.
+#
+# cron does not inherit the container's environment, so the entrypoint writes
+# the secrets to /app/.env and run.py loads them from there.
+#
+# Output goes to the container log (stdout of PID 1) rather than a file, so
+# `docker compose logs -f robbin` shows you the runs.
+0 */8 * * * cd /app && /usr/local/bin/python run.py --once >> /proc/1/fd/1 2>&1
+
+# Blank final line is required by cron; without it the last job is ignored.

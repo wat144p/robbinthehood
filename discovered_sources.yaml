@@ -1,0 +1,52 @@
+_comment: Discovered by the monthly source-discovery pass. Nothing here is active.
+  To enable one, set its status to 'approved', then add a matching entry under sources.rss.feeds
+  or sources.html.sites in config.yaml. Setting status to 'rejected' stops it being
+  resurfaced next month.
+last_run: '2026-08-17T19:55:23.420241+00:00'
+candidates:
+- url: https://www.pcgamer.com/gaming-laptop-deals
+  name: Best deals on gaming laptops | PC Gamer
+  discovered_from: config seed
+  confidence: 1.0
+  regions:
+  - AU
+  - BE
+  - CA
+  - DE
+  - GB
+  - SE
+  - US
+  feed_url: https://www.pcgamer.com/uk/feeds.xml
+  robots_allows: true
+  has_prices: true
+  notes: has an RSS feed — can be added as an rss source
+  first_seen: '2026-08-17'
+  status: pending
+- url: https://findmelaptop.com/gaming-laptop-deals
+  name: Unbeatable Gaming Laptop Deals | Find Your Ultimate Battle Station
+  discovered_from: config seed
+  confidence: 0.75
+  regions:
+  - CA
+  - DE
+  - SE
+  - US
+  feed_url: null
+  robots_allows: true
+  has_prices: true
+  notes: prices present but no feed — needs an html source with selectors
+  first_seen: '2026-08-17'
+  status: pending
+- url: https://laptoppicker.com
+  name: Find Your Perfect Gaming Laptop
+  discovered_from: config seed
+  confidence: 0.29
+  regions:
+  - DE
+  - US
+  feed_url: null
+  robots_allows: true
+  has_prices: false
+  notes: no prices found in the server-rendered HTML; may be JS-rendered
+  first_seen: '2026-08-17'
+  status: pending

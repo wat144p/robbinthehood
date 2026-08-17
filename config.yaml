@@ -1,0 +1,803 @@
+# =============================================================================
+#  robbin-the-hood — configuration
+# =============================================================================
+#  Everything tunable lives here. You should never have to edit Python to
+#  change a budget, a tax rate, a scoring weight, or a target model.
+#
+#  MONEY: every "_usd" figure is LANDED USD — the full cost to get the machine
+#  into your contact's hands in that region. Never a raw sticker price.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Budget (all landed USD)
+# -----------------------------------------------------------------------------
+budget:
+  hard_ceiling_usd: 1400      # reject anything above this, no exceptions
+  target_low_usd: 1000        # score peaks inside [target_low, target_high]
+  target_high_usd: 1200
+  suspicious_below_usd: 1000  # below this, weight seller trust harder
+  # How much harder. Below the threshold, the seller-trust component is
+  # penalised by this fraction of the points it FAILED to earn:
+  #     adjusted = raw - (max_trust - raw) * multiplier
+  # A 12/12 Best Buy listing is unaffected (it lost nothing); a 2/12 no-history
+  # eBay seller drops to -3. That is what "weight trust harder" should mean -
+  # a cheap machine from a trusted seller is just a good deal.
+  suspicious_trust_penalty_multiplier: 0.5
+
+# -----------------------------------------------------------------------------
+# Hard filters — a listing failing ANY of these is rejected and never notified
+# -----------------------------------------------------------------------------
+hard_filters:
+  min_system_ram_gb: 16
+  min_vram_gb: 8
+  min_storage_gb: 1000        # internal M.2 only; dock/external storage ignored
+  min_vertical_resolution: 1440
+  min_gpu_generation: 30      # RTX 30-series or newer (30/40/50)
+  # Layouts rejected outright unless the listing explicitly states a US or UK
+  # layout. Canadian Multilingual is deliberately NOT here: it is QWERTY, so it
+  # falls outside your stated reject list, but it is not ANSI either — it gets
+  # a score penalty and a loud flag instead (see scoring.keyboard below).
+  rejected_keyboard_layouts: [QWERTZ, AZERTY, NORDIC]
+  # Throw away listings we could not parse a GPU, resolution, RAM or storage
+  # figure from. They are written to the database with reason UNPARSEABLE so
+  # you can audit how often this fires — if it fires a lot, the parser needs
+  # work rather than the filter needing loosening.
+  reject_unparseable: true
+
+# -----------------------------------------------------------------------------
+# Regions
+# -----------------------------------------------------------------------------
+#  enabled            — flip to false to stop scraping/scoring a region entirely
+#  currency           — ISO 4217, used to look up the FX rate
+#  vat_in_sticker     — fraction of tax ALREADY baked into the advertised price.
+#                       Informational only: we never strip it out (see below).
+#  tax_added_at_checkout — true when the advertised price excludes tax
+#  risk_premium       — multiplier for real costs that never show on the tag
+#                       (forwarding friction, returns, RMA impossibility)
+#  default_keyboard   — assumed layout when the listing says nothing
+#
+#  IMPORTANT: reclaimable_tax is 0 in every region. Your contact receives the
+#  goods as a normal domestic consumer, so UK/EU VAT is NOT reclaimable. We do
+#  not strip VAT out of European stickers — doing so would flatter them.
+# -----------------------------------------------------------------------------
+regions:
+  US:
+    enabled: true
+    display: "United States"
+    flag: "🇺🇸"
+    currency: USD
+    vat_in_sticker: 0.00
+    tax_added_at_checkout: true
+    risk_premium: 0.00
+    default_keyboard: ANSI
+    # Sales tax by state. Fallback is used when the listing doesn't reveal a
+    # destination — deliberately pessimistic so we never under-quote a deal.
+    checkout_tax_rates:
+      DE: 0.00     # Delaware
+      MT: 0.00     # Montana
+      NH: 0.00     # New Hampshire
+      OR: 0.00     # Oregon
+      CA: 0.0725
+      NY: 0.08875
+      TX: 0.0825
+      WA: 0.1025
+      FL: 0.07
+    checkout_tax_fallback: 0.07
+    preferred_jurisdictions: [DE, MT, NH, OR]
+
+  CA:
+    enabled: true
+    display: "Canada"
+    flag: "🇨🇦"
+    currency: CAD
+    vat_in_sticker: 0.00
+    tax_added_at_checkout: true
+    risk_premium: 0.00          # co-primary with the US, not an afterthought
+    default_keyboard: UNVERIFIED  # bilingual Multilingual Standard is common
+    checkout_tax_rates:
+      AB: 0.05     # Alberta — 5% GST only. The single best province to ship to.
+      BC: 0.12
+      MB: 0.12
+      NB: 0.15
+      NL: 0.15
+      NS: 0.15
+      NT: 0.05
+      NU: 0.05
+      "ON": 0.13   # quoted — bare ON is parsed as boolean false by YAML 1.1
+      PE: 0.15
+      QC: 0.14975
+      SK: 0.11
+      YT: 0.05
+    checkout_tax_fallback: 0.13   # assume Ontario when province is not visible
+    preferred_jurisdictions: [AB, NT, NU, YT]
+
+  GB:
+    enabled: true
+    display: "United Kingdom"
+    flag: "🇬🇧"
+    currency: GBP
+    vat_in_sticker: 0.20        # already in the price — NOT removed
+    tax_added_at_checkout: false
+    risk_premium: 0.03
+    default_keyboard: ISO_UK    # acceptable, but carries a score penalty
+    checkout_tax_rates: {}
+    checkout_tax_fallback: 0.00
+
+  DE:
+    enabled: true
+    display: "Germany"
+    flag: "🇩🇪"
+    currency: EUR
+    vat_in_sticker: 0.19        # lowest VAT of the EU options
+    tax_added_at_checkout: false
+    risk_premium: 0.05
+    default_keyboard: QWERTZ    # rejected unless US/UK layout is explicit
+    checkout_tax_rates: {}
+    checkout_tax_fallback: 0.00
+
+  BE:
+    enabled: true
+    display: "Belgium"
+    flag: "🇧🇪"
+    currency: EUR
+    vat_in_sticker: 0.21
+    tax_added_at_checkout: false
+    risk_premium: 0.05
+    default_keyboard: AZERTY    # rejected unless US/UK layout is explicit
+    checkout_tax_rates: {}
+    checkout_tax_fallback: 0.00
+
+  SE:
+    enabled: true
+    display: "Sweden"
+    flag: "🇸🇪"
+    currency: SEK
+    vat_in_sticker: 0.25        # highest — deprioritised
+    tax_added_at_checkout: false
+    risk_premium: 0.05
+    default_keyboard: NORDIC    # rejected unless US/UK layout is explicit
+    checkout_tax_rates: {}
+    checkout_tax_fallback: 0.00
+
+  AU:
+    enabled: true
+    display: "Australia"
+    flag: "🇦🇺"
+    currency: AUD
+    vat_in_sticker: 0.10        # GST, already in the sticker
+    tax_added_at_checkout: false
+    risk_premium: 0.05
+    default_keyboard: ANSI
+    checkout_tax_rates: {}
+    checkout_tax_fallback: 0.00
+
+# -----------------------------------------------------------------------------
+# Foreign exchange
+# -----------------------------------------------------------------------------
+fx:
+  # Primary and fallback providers. Both are free and keyless.
+  providers:
+    - exchangerate.host
+    - ecb
+  cache_hours: 12
+  cache_path: "data/fx_cache.json"
+  # Last-resort rates used when every provider fails AND the cache is empty
+  # (offline runs, CI, unit tests). The run is flagged FX_STALE when these are
+  # used so you never mistake a fallback number for a live one.
+  fallback_rates_to_usd:
+    USD: 1.0
+    CAD: 0.73
+    GBP: 1.27
+    EUR: 1.09
+    SEK: 0.095
+    AUD: 0.66
+
+# -----------------------------------------------------------------------------
+# Scoring rubric
+# -----------------------------------------------------------------------------
+#  The seven base components sum to exactly 100. Bonuses (free M.2 slot,
+#  price-vs-floor) can push above that; penalties (ISO keyboard, single-channel,
+#  junk-title) can push below. The final total is clamped to 0-100.
+# -----------------------------------------------------------------------------
+scoring:
+  clamp_min: 0
+  clamp_max: 100
+
+  # -- VRAM tier (30 pts) — the single biggest constraint: it decides which
+  #    quantised model sizes fit on the card at all.
+  vram:
+    max_points: 30
+    tiers:
+      16: 30      # >=16 GB
+      12: 26
+      8: 14
+
+  # -- Memory bandwidth (10 pts) — token generation speed scales with
+  #    bandwidth, not capacity. Linear between the two anchors.
+  bandwidth:
+    max_points: 10
+    floor_gbs: 256      # 0 pts
+    ceiling_gbs: 672    # 10 pts
+    unknown_points: 4   # and flag it
+
+  # -- Panel (15 pts)
+  panel:
+    max_points: 15
+    oled_preferred_resolutions: [[2560, 1600], [2560, 1440]]
+    oled_preferred_points: 15
+    oled_other_points: 12       # OLED at any other resolution >=1440p
+    ips_bright_points: 7        # IPS/VA >=1440p and >=400 nits
+    ips_bright_nits: 400
+    ips_dim_or_unknown_points: 5
+
+  # -- System RAM (15 pts)
+  system_ram:
+    max_points: 15
+    tiers:
+      32: 15      # >=32 GB
+      24: 10
+      16: 6
+    single_channel_penalty: -3  # one SODIMM is a real performance trap
+
+  # -- Storage (8 pts + 2 bonus)
+  storage:
+    max_points: 8
+    tiers:
+      2000: 8     # >=2 TB
+      1000: 5
+    free_m2_slot_bonus: 2
+
+  # -- GPU power / TGP (10 pts) — TGP beats the model name. A 115 W xx60
+  #    genuinely outruns an 85 W xx70.
+  tgp:
+    max_points: 10
+    tiers:
+      140: 10     # >=140 W
+      115: 8
+      100: 5
+      0: 2        # under 100 W
+    unknown_points: 4   # and flag it
+
+  # -- Condition and seller trust (12 pts)
+  condition:
+    max_points: 12
+    new_major_retailer: 12
+    new_other: 10               # new, but not from a retailer on the list below
+    mfr_certified_refurb: 11
+    open_box_excellent: 10
+    open_box_good: 8
+    open_box_fair: 6
+    ebay_refurb_trusted: 9      # >10k feedback AND >99%
+    used_trusted: 6             # >1k feedback AND >98%
+    used_untrusted: 2           # <100 feedback -> also HIGH RISK
+    used_default: 4             # everything in between
+    ebay_refurb_trusted_min_feedback: 10000
+    ebay_refurb_trusted_min_percent: 99.0
+    used_trusted_min_feedback: 1000
+    used_trusted_min_percent: 98.0
+    used_untrusted_max_feedback: 100
+    # Any of these substrings in the title: -15 points and a HIGH RISK mark.
+    junk_title_penalty: -15
+    junk_title_markers:
+      - "read"
+      - "as is"
+      - "as-is"
+      - "for parts"
+      - "bad cam"
+      - "cracked"
+      - "no battery"
+      - "parts only"
+      - "not working"
+
+  # -- Price vs. known floor (+/-10)
+  price_vs_floor:
+    max_bonus: 10
+    max_penalty: -10
+    # +10 at or below the floor, sliding to -10 at this much above it.
+    penalty_at_ratio: 1.25
+    unknown_floor_points: 0     # no floor on record -> neutral, and flag
+
+  # -- Keyboard layout modifier (applied after the base components)
+  keyboard:
+    iso_uk_penalty: -4          # different Enter shape, @ and " swapped
+    # A CONFIRMED bilingual Canadian board: QWERTY, so not in the reject list,
+    # but physically ISO with extra legends. Same penalty as UK ISO.
+    canadian_multilingual_penalty: -4
+    unverified_penalty: 0       # no penalty, but always flagged in the alert
+
+  # -- Major retailers, for the "new from major retailer" condition tier
+  major_retailers:
+    - "best buy"
+    - "bestbuy"
+    - "b&h"
+    - "bhphotovideo"
+    - "walmart"
+    - "newegg"
+    - "amazon"
+    - "micro center"
+    - "microcenter"
+
+# -----------------------------------------------------------------------------
+# Notification thresholds
+# -----------------------------------------------------------------------------
+notification:
+  immediate_alert_score: 75     # >=75 -> one message per listing, right now
+  digest_score: 55              # 55-74 -> batched into the daily digest
+                                # <55  -> database only, stay silent
+  price_drop_repeat_percent: 5.0  # re-notify if price falls more than this
+  digest_time_pkt: "09:00"      # Pakistan Standard Time, UTC+5, no DST
+  digest_top_n: 10
+  expire_days: 7                # not seen in this long -> marked GONE
+
+  # Channels. Both are optional and both read their secret from the
+  # environment — never put a webhook URL in this file, it is a bearer token.
+  # `--dry-run` bypasses all of this and prints to stdout instead.
+  channels:
+    discord:
+      enabled: true
+      webhook_env: DISCORD_WEBHOOK_URL
+      # Channel settings -> Integrations -> New Webhook -> Copy URL
+
+    ntfy:
+      enabled: true
+      topic_env: NTFY_TOPIC
+      server: https://ntfy.sh
+      # WARNING: anyone who knows the topic name can read AND publish to it.
+      # Use a long random string, not "laptop-deals". Self-host by changing
+      # `server` if you'd rather not trust the public instance.
+
+# -----------------------------------------------------------------------------
+# Known price floors (landed USD) and target models
+# -----------------------------------------------------------------------------
+#  `patterns` are case-insensitive regexes matched against the listing title,
+#  first match wins, so put the more specific models first.
+#  `floor_usd` is updated automatically whenever a verified lower price appears.
+#  `priority_alert_at_or_below_usd` fires an immediate alert regardless of score.
+# -----------------------------------------------------------------------------
+known_models:
+  - key: acer_predator_helios_neo_16s_ai
+    display: "Acer Predator Helios Neo 16S AI"
+    patterns:
+      - "helios\\s+neo\\s+16s"
+      - "predator\\s+helios\\s+neo\\s+16\\s*s\\s*ai"
+    floor_usd: 1184             # Best Buy open box; eBay cert. refurb was 1371
+    priority: true              # the only machine hitting every preferred spec
+    priority_alert_at_or_below_usd: 1250
+    notes: "16in 2560x1600 240Hz OLED G-SYNC 500nit, Ultra 9 275HX, RTX 5070 Ti 12GB, 32GB, 1TB"
+
+  - key: lenovo_legion_pro_5_16_83lt000mus
+    display: "Lenovo Legion Pro 5 16 (83LT000MUS)"
+    patterns:
+      - "83lt000mus"
+      - "legion\\s+pro\\s+5.*8745hx"
+    floor_usd: 1049
+    notes: "16in 2560x1600 OLED 165Hz 500nit, Ryzen 7 8745HX, RTX 5060 @115W, 32GB, 1TB"
+
+  - key: msi_vector_16_hx
+    display: "MSI Vector 16 HX"
+    patterns:
+      - "vector\\s+16\\s*hx"
+    floor_usd: 1299
+    notes: "16in 240Hz IPS, Ryzen 9, RTX 5070 Ti 12GB @140W, 16GB, 1TB"
+
+  - key: gigabyte_aero_x16
+    display: "Gigabyte Aero X16"
+    patterns:
+      - "aero\\s+x16"
+    floor_usd: 1015
+    notes: "16in 2560x1600 165Hz IPS 400nit, Ryzen AI 7 350, RTX 5070 8GB @85W, 32GB, 1TB (open box floor)"
+
+  - key: lenovo_legion_5i_15
+    display: "Lenovo Legion 5i 15.1"
+    patterns:
+      - "legion\\s+5i\\s+15"
+    floor_usd: 1150
+    notes: "15.1in 2560x1600 OLED 165Hz, Ultra 7 255HX, RTX 5060, 32GB, 1TB"
+
+  - key: lenovo_legion_7i_16
+    display: "Lenovo Legion 7i 16"
+    patterns:
+      - "legion\\s+7i\\s+16"
+      - "legion\\s+7i(?!\\d)"
+    floor_usd: 1180
+    notes: "16in 2.5K OLED 165Hz, Ultra 7 255HX, RTX 5060, 32GB, 1TB (open box floor)"
+
+  - key: lenovo_legion_5_pro_16ach6h
+    display: "Lenovo Legion 5 Pro 16ACH6H / 16ARH7H"
+    patterns:
+      - "16ach6h"
+      - "16arh7h"
+      - "legion\\s+5\\s+pro.*(5800h|6800h)"
+    floor_usd: 869
+    notes: "16in QHD+ 165Hz IPS, Ryzen 7 5800H/6800H, RTX 3070 8GB, 16GB, 1TB (used floor)"
+
+# -----------------------------------------------------------------------------
+# Standing high-priority rules, independent of model
+# -----------------------------------------------------------------------------
+priority_rules:
+  # The RTX 5070 12 GB variant is new and open-box units are not yet tracked,
+  # so any confirmed sighting is worth surfacing immediately.
+  rtx_5070_12gb_is_priority: true
+
+# =============================================================================
+#  Sources
+# =============================================================================
+#  Each source reads its own block. Set `enabled: false` to turn one off
+#  without touching code. A source that fails is reported in the digest and
+#  never takes the rest of the run down with it.
+# =============================================================================
+sources:
+
+  # SQLite state: dedup, price history, floors, run bookkeeping.
+  # Committed back to the repo between GitHub Actions runs — which, as a happy
+  # side effect, counts as repo activity and keeps the 60-day scheduled-workflow
+  # timeout from ever firing.
+  database_path: "data/deals.db"
+
+  # Shared HTTP manners. Applies to every source.
+  http:
+    user_agent: >-
+      robbin-the-hood/0.1 (personal gaming-laptop price tracker;
+      +https://github.com/yourname/robbin-the-hood)
+    timeout_seconds: 20
+    max_retries: 3
+    backoff_seconds: 2.0
+    request_delay_seconds: 0.5   # minimum gap between requests, per source
+    max_requests_per_run: 200    # runaway guard, not a normal-use ration
+
+  # ---------------------------------------------------------------------------
+  # eBay Browse API — five regions through one OAuth integration
+  # ---------------------------------------------------------------------------
+  # Credentials come from the environment, never from this file:
+  #     EBAY_CLIENT_ID / EBAY_CLIENT_SECRET
+  # Get them free at developer.ebay.com (Production keyset, not Sandbox).
+  # ---------------------------------------------------------------------------
+  ebay:
+    enabled: true
+    environment: production      # 'sandbox' returns fake inventory
+
+    # eBay has no useful Sweden marketplace, and EBAY_BE carries almost no
+    # laptop stock — those two regions are covered by local retailers later.
+    marketplaces:
+      - EBAY_US
+      - EBAY_CA
+      - EBAY_GB
+      - EBAY_DE
+      - EBAY_AU
+
+    # Search terms. Keep these broad-ish: the hard filters and scoring do the
+    # discriminating, and a narrow query is how you miss a mistitled bargain.
+    queries:
+      - "Acer Predator Helios Neo 16S AI"     # the priority target, by name
+      - "gaming laptop RTX 5070 Ti 32GB"
+      - "gaming laptop RTX 5070 12GB"
+      - "gaming laptop RTX 5060 32GB OLED"
+      - "Lenovo Legion Pro 5 16 OLED 32GB"
+      - "gaming laptop 2560x1600 OLED 32GB 1TB"
+
+    # Which conditions to pull. See CONDITION_IDS in sources/ebay.py.
+    #   1000 new | 1500 open box | 2000 certified refurb
+    #   2010/2020/2030 eBay Refurbished grades | 2500 seller refurb | 3000 used
+    condition_ids: [1000, 1500, 2000, 2010, 2020, 2030, 2500, 3000]
+
+    results_per_query: 100       # eBay's max page size is 200
+    max_pages: 2
+    min_price_usd: 400           # below this it's an accessory or a scam
+    ceiling_margin: 1.05         # search slightly above budget; the landed-cost
+                                 # filter does the real rejecting
+
+    # eBay tags these manufacturer outlets as plain "seller refurbished" even
+    # though they carry real manufacturer warranties. Matched as substrings
+    # against the seller username.
+    certified_refurb_sellers:
+      - acer
+      - lenovo
+      - asus
+      - msi
+      - dell
+      - hp_store
+      - razer
+
+  # ---------------------------------------------------------------------------
+  # Best Buy Developer API (US)
+  # ---------------------------------------------------------------------------
+  # Free key from developer.bestbuy.com, issued instantly. Set BESTBUY_API_KEY.
+  # Limits: 5 queries/second, 50,000/day — we use a handful.
+  #
+  # Best Buy open-box is where the best OLED + 5070 Ti pricing has appeared, so
+  # the open-box call matters more than the new-product feed. It uses a BETA
+  # endpoint whose shape has changed before; a failure there is non-fatal and
+  # gets reported in the digest rather than losing the whole source.
+  # ---------------------------------------------------------------------------
+  bestbuy:
+    enabled: true
+    api_key_env: BESTBUY_API_KEY
+    category_id: abcat0502000     # Laptops & Netbooks
+    page_size: 100
+    ceiling_margin: 1.05
+    fetch_open_box: true
+    open_box_batch: 20
+    searches:
+      - "predator helios neo"
+      - "legion pro 5"
+      - "gaming laptop rtx 5070"
+      - "gaming laptop rtx 5060 oled"
+
+  # ---------------------------------------------------------------------------
+  # RSS deal feeds (Tier 1 communities)
+  # ---------------------------------------------------------------------------
+  # These feeds carry EVERY category the site posts — the same OzBargain feed
+  # that has a laptop deal also has dog food. `keyword_pattern` is load-bearing,
+  # not an optimisation.
+  #
+  # Verified against the live feeds on 2026-08-17:
+  #   ozbargain     WORKS — RSS 2.0, plus <ozb:meta url=…> giving the real
+  #                 destination rather than the forum thread
+  #   hotukdeals    WORKS — Pepper platform, emits
+  #                 <pepper:merchant name="Argos" price="£65"/>, i.e. the price
+  #                 and retailer already separated. Big win over title parsing.
+  #   mydealz       same Pepper platform as hotukdeals, same element shape
+  #   redflagdeals  BLOCKED — now 307-redirects to tollbit.redflagdeals.com,
+  #                 a paid bot-access tollbooth. Left disabled.
+  #   slickdeals    BLOCKED — returns 403 to non-browser clients.
+  #
+  # The two blocked ones are left configured-but-disabled so that if they drop
+  # the gate you only have to flip `enabled`.
+  # ---------------------------------------------------------------------------
+  rss:
+    enabled: true
+    feeds:
+      ozbargain:
+        enabled: true
+        url: "https://www.ozbargain.com.au/deals/feed"
+        region: AU
+        currency: AUD
+        max_age_hours: 48
+        keyword_pattern: "laptop|notebook|legion|predator|omen|nitro|rog |tuf |vector|raider|aero|zephyrus|blade"
+        category_pattern: "computing|electronics"
+
+      hotukdeals:
+        enabled: true
+        url: "https://www.hotukdeals.com/rss/hot"
+        region: GB
+        currency: GBP
+        max_age_hours: 48
+        keyword_pattern: "laptop|notebook|legion|predator|omen|nitro|rog |tuf |vector|raider|aero|zephyrus|blade"
+
+      mydealz:
+        enabled: true
+        # /rss/hot is the working path — verified 2026-08-17, 30 items.
+        # /rss/alle and /rss/neue both 404.
+        url: "https://www.mydealz.de/rss/hot"
+        region: DE
+        currency: EUR
+        max_age_hours: 48
+        keyword_pattern: "laptop|notebook|legion|predator|omen|nitro|rog |tuf |vector|raider|aero|zephyrus|blade"
+
+      redflagdeals:
+        # Redirects to a bot tollbooth as of 2026-08-17. Flip to true if that
+        # changes; the parser needs no modification.
+        enabled: false
+        url: "https://www.redflagdeals.com/api/topics.rss?forum_id=9"
+        region: CA
+        currency: CAD
+        keyword_pattern: "laptop|notebook|legion|predator|omen|nitro|rog |tuf "
+
+      slickdeals:
+        # 403s non-browser clients as of 2026-08-17.
+        enabled: false
+        url: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1"
+        region: US
+        currency: USD
+        keyword_pattern: "laptop|notebook|legion|predator|omen|nitro|rog |tuf "
+
+  # ---------------------------------------------------------------------------
+  # Reddit (Tier 1)
+  # ---------------------------------------------------------------------------
+  # NEEDS OAUTH AS OF 2026-08-17. The old "just append .json" trick is dead:
+  #   www.reddit.com/r/X/new.json  -> 403, with any User-Agent (verified)
+  #   old.reddit.com/r/X/new.json  -> 200 but serves an HTML interstitial
+  #
+  # Still free and still no approval process:
+  #   1. reddit.com/prefs/apps -> "create another app" -> type SCRIPT
+  #   2. Redirect URI: http://localhost (unused by this grant)
+  #   3. Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET
+  # That gives 100 queries/minute; we use one request per subreddit per run.
+  #
+  # Without credentials the source reports the 403 and tells you this, rather
+  # than silently returning nothing and looking like a quiet day.
+  #
+  # r/LaptopDeals is the highest-signal source here. Its posts are flaired by
+  # price bracket; `flair_include` targets the $1000-1200 and $1200-1400
+  # brackets. The patterns are deliberately loose about punctuation because the
+  # exact flair strings vary ("$1000-$1200", "$1000 - $1200", "1000-1200").
+  # ---------------------------------------------------------------------------
+  reddit:
+    enabled: true
+    subreddits:
+      LaptopDeals:
+        enabled: true
+        region: US
+        currency: USD
+        max_age_hours: 24
+        flair_include:
+          - "1[,.]?000?\\s*[-–to]+\\s*\\$?1[,.]?200"
+          - "1[,.]?200?\\s*[-–to]+\\s*\\$?1[,.]?400"
+        keyword_pattern: "laptop|legion|predator|omen|nitro|rog |tuf |vector|raider|aero|zephyrus|blade|rtx"
+
+      buildapcsales:
+        enabled: true
+        region: US
+        currency: USD
+        max_age_hours: 24
+        flair_include: ["laptop"]
+        keyword_pattern: "laptop|legion|predator|omen|nitro|rog |tuf |vector|raider"
+
+      bapcsalescanada:
+        enabled: true
+        region: CA
+        currency: CAD
+        max_age_hours: 24
+        flair_include: ["laptop"]
+        keyword_pattern: "laptop|legion|predator|omen|nitro|rog |tuf |vector|raider"
+
+      GamingLaptops:
+        enabled: true
+        region: US
+        currency: USD
+        max_age_hours: 24
+        keyword_pattern: "deal|sale|price drop|open box|refurb|\\$"
+
+      SuggestALaptop:
+        # Low deal volume, but occasionally catches an outlier. Self-posts are
+        # allowed here because that is the whole format of the sub.
+        enabled: false
+        region: US
+        currency: USD
+        require_link: false
+        max_age_hours: 24
+        keyword_pattern: "deal|\\$1[0-4]\\d\\d"
+
+  # ---------------------------------------------------------------------------
+  # HTML scrapers (Tier 0 trackers and Tier 4 retailers)
+  # ---------------------------------------------------------------------------
+  # EVERY SITE HERE SHIPS DISABLED, because selectors written without seeing a
+  # site's live markup are fiction. Verify one first:
+  #
+  #     python run.py --probe currys
+  #
+  # which fetches a page and prints what the configured selectors actually
+  # match. Enable it only once that looks right.
+  #
+  # Findings from probing these live on 2026-08-17:
+  #
+  #   gaminglaptop.deals  robots.txt ALLOWS us, and the server returns 200 with
+  #                       ~165 KB to a polite descriptive User-Agent. But it is
+  #                       a React SPA: the HTML is app shell + Tailwind, and it
+  #                       contains ZERO price strings. Deals are client-rendered.
+  #                       It does expose a JSON API — /api/gpus returns a real
+  #                       GPU/VRAM reference list — and references /api/model-hub,
+  #                       which 404s on every parameter shape I tried.
+  #                       NEXT STEP: open the site in a browser with devtools on
+  #                       the Network tab, filter to XHR, and read off the actual
+  #                       deals request. That turns this into a clean API source
+  #                       in about twenty minutes and beats DOM scraping outright.
+  #
+  #   bestlaptop.deals    Same story: server HTML has the filter UI and no deal
+  #                       cards. Client-rendered. Needs the same treatment.
+  #
+  # Zero-engineering alternative worth doing by hand today: gaminglaptop.deals
+  # runs a FREE price-drop email alert service where you pick model, config and
+  # target price. Set one up for the Helios Neo 16S AI at $1,250 and you get
+  # their coverage without any of this.
+  #
+  # Both entries keep their real URLs and regions so finishing them later is a
+  # config change, not a rewrite.
+  # ---------------------------------------------------------------------------
+  html:
+    enabled: true
+    sites:
+      gaminglaptop_deals:
+        enabled: false
+        base_url: "https://gaminglaptop.deals"
+        region: US
+        currency: USD
+        paths: ["/laptops", "/search"]
+        seller_name: "gaminglaptop.deals"
+        notes: >-
+          Jarrod's Tech tracker, 7 regions, real price history and per-config
+          buy/avoid guidance. robots.txt allows crawling, but the server 403s
+          non-browser clients — NEEDS A HEADLESS BROWSER. Their free price-drop
+          email alerts are a zero-engineering alternative worth setting up by
+          hand for the Helios Neo 16S AI.
+        selectors:
+          item: ""      # unknown — fill in after a headless fetch
+          title: ""
+          price: ""
+          url: ""
+
+      bestlaptop_deals:
+        enabled: false
+        base_url: "https://bestlaptop.deals"
+        region: US
+        currency: USD
+        paths: ["/recommendations/Crazy-Deals"]
+        seller_name: "bestlaptop.deals"
+        notes: >-
+          JustJoshTech. Deal cards are JavaScript-rendered; the server HTML
+          contains only the filter UI. NEEDS A HEADLESS BROWSER.
+        selectors:
+          item: ""
+          title: ""
+          price: ""
+          url: ""
+
+      # -- Retailers. Selectors unverified; probe before enabling. ----------
+      currys:
+        enabled: false
+        base_url: "https://www.currys.co.uk"
+        region: GB
+        currency: GBP
+        paths: ["/gaming/laptops"]
+        seller_name: "Currys"
+        condition: NEW
+        selectors: {item: "", title: "", price: "", url: ""}
+
+      geizhals:
+        enabled: false
+        base_url: "https://geizhals.de"
+        region: DE
+        currency: EUR
+        paths: ["/?cat=nb"]
+        seller_name: "Geizhals"
+        notes: >-
+          The best price-comparison engine in Europe — aggregates most German
+          retailers in one query, so it is worth more than any single shop.
+          Remember the QWERTZ filter kills most German stock; only listings
+          explicitly stating a US/UK layout survive.
+        selectors: {item: "", title: "", price: "", url: ""}
+
+      canada_computers:
+        enabled: false
+        base_url: "https://www.canadacomputers.com"
+        region: CA
+        currency: CAD
+        paths: ["/en/powered-by-nvidia-laptops"]
+        seller_name: "Canada Computers"
+        condition: NEW
+        selectors: {item: "", title: "", price: "", url: ""}
+
+  # ---------------------------------------------------------------------------
+  # Monthly source discovery
+  # ---------------------------------------------------------------------------
+  # Runs on the first run of each month. Writes candidates to
+  # discovered_sources.yaml and surfaces them in the digest for approval.
+  # NOTHING is ever auto-enabled.
+  # ---------------------------------------------------------------------------
+  discovery:
+    enabled: true
+    output_path: "discovered_sources.yaml"
+    harvest_subreddits:
+      - LaptopDeals
+      - buildapcsales
+      - bapcsalescanada
+      - GamingLaptops
+    seed_candidates:
+      - "https://laptoppicker.com"
+      - "https://findmelaptop.com/gaming-laptop-deals"
+      - "https://www.pcgamer.com/gaming-laptop-deals"
+
+  # ---------------------------------------------------------------------------
+  # X / Twitter — deliberately NOT implemented
+  # ---------------------------------------------------------------------------
+  # The official API's usable tier is ~$200/month, which is not worth it here.
+  # Nearly everything posted to deal accounts on X is cross-posted to Slickdeals
+  # or r/LaptopDeals within minutes, so the coverage loss is small.
+  #
+  # To add it anyway: point an RSS bridge (RSS.app or a self-hosted instance) at
+  # the accounts you want and add the resulting feed URLs under sources.rss.feeds
+  # above — no new code needed. Treat failures as non-fatal; bridges are flaky.
+  # ---------------------------------------------------------------------------
+  x_twitter:
+    enabled: false
+    note: "Use an RSS bridge and add the feed under sources.rss.feeds instead."

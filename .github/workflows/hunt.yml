@@ -1,0 +1,106 @@
+name: hunt
+
+on:
+  schedule:
+    # Every 8 hours. Note: GitHub Actions cron is best-effort and routinely
+    # drifts by several minutes (occasionally much more) under load. Nothing
+    # here depends on exact timing — the daily digest fires on the first run
+    # after 09:00 PKT rather than matching a clock time, so drift and even a
+    # skipped run are both survivable.
+    - cron: '0 */8 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print instead of sending'
+        type: boolean
+        default: false
+      force_digest:
+        description: 'Send the digest regardless of time of day'
+        type: boolean
+        default: false
+
+# Runs must never overlap: two jobs writing the same SQLite file and both
+# pushing it would lose one run's state entirely. `cancel-in-progress: false`
+# means a late run queues behind the previous one instead of killing it
+# mid-write.
+concurrency:
+  group: hunt
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # needed to commit the database back
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Hunt
+        env:
+          # Every one of these is optional. A source whose credentials are
+          # missing reports itself as unconfigured and the run continues with
+          # the others — that is the whole point of isolating source failures.
+          EBAY_CLIENT_ID:      ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET:  ${{ secrets.EBAY_CLIENT_SECRET }}
+          BESTBUY_API_KEY:     ${{ secrets.BESTBUY_API_KEY }}
+          REDDIT_CLIENT_ID:    ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NTFY_TOPIC:          ${{ secrets.NTFY_TOPIC }}
+        run: |
+          python run.py --once \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            ${{ github.event.inputs.force_digest == 'true' && '--force-digest' || '' }}
+
+      - name: Commit state
+        # `always()` so state is saved even when the hunt step exits non-zero
+        # (which only happens when EVERY source failed). Losing dedup state on
+        # a bad run would make the next good run re-alert everything.
+        if: always()
+        run: |
+          git config user.name  "robbin-the-hood"
+          git config user.email "actions@github.com"
+
+          git add -f data/deals.db data/fx_cache.json discovered_sources.yaml 2>/dev/null || true
+
+          if git diff --staged --quiet; then
+            echo "No state changes to commit."
+            exit 0
+          fi
+
+          git commit -m "state: run $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
+
+          # Another run may have pushed while we were working. Rebase and
+          # retry rather than force-pushing — the database is binary and a
+          # force push would silently discard the other run's state.
+          for attempt in 1 2 3; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push failed, rebasing and retrying..."
+            git pull --rebase --strategy-option=ours || true
+            sleep 5
+          done
+
+          echo "::warning::Could not push state after 3 attempts."
+
+      - name: Compact the database monthly
+        # The DB lives in git forever, so old history would bloat the repo.
+        # Pruning on the 1st keeps it small without losing anything current.
+        if: always() && success() && startsWith(github.event.schedule, '0 0')
+        run: |
+          if [ "$(date -u +%d)" = "01" ]; then
+            python run.py --prune --once --dry-run --offline --source ebay || true
+          fi

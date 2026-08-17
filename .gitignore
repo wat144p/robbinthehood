@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Runtime state.
+#
+# NOTE: data/deals.db is deliberately NOT ignored. It is committed back to the
+# repo between GitHub Actions runs so dedup state, price history and floors
+# survive — without it every run would re-alert everything it has ever seen.
+# (A happy side effect: those commits count as repo activity, so the 60-day
+# scheduled-workflow timeout never fires.)
+#
+# The WAL sidecars are transient and must not be committed; Store.close()
+# checkpoints them back into the main file before exit.
+data/*.db-wal
+data/*.db-shm
+data/fx_cache.json
+*.log
+.env

@@ -1,0 +1,13 @@
+# Shell scripts and the crontab MUST have LF endings. If git converts them to
+# CRLF on a Windows checkout, the Docker container fails at startup with
+# "bad interpreter: no such file or directory" — which is a confusing error to
+# debug, because the file looks perfectly fine in an editor.
+*.sh            text eol=lf
+docker/crontab  text eol=lf
+entrypoint.sh   text eol=lf
+
+# The SQLite database is committed between runs (see .gitignore). Treat it as
+# binary so git never tries to merge or line-ending-convert it.
+*.db            binary
+*.db-wal        binary
+*.db-shm        binary

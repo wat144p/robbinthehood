@@ -1,0 +1,44 @@
+# Self-hosted alternative to the GitHub Actions workflow.
+#
+#   cp .env.example .env    # fill in whichever keys you have
+#   docker compose up -d
+#   docker compose logs -f
+#
+# Every secret is optional: a source with no credentials reports itself as
+# unconfigured and the run continues with the others.
+
+services:
+  robbin:
+    build: .
+    container_name: robbin-the-hood
+    restart: unless-stopped
+
+    environment:
+      TZ: Asia/Karachi          # so 09:00 PKT means 09:00 to the container too
+      RUN_ON_START: "true"      # run once on boot instead of waiting 8 hours
+
+      EBAY_CLIENT_ID:       ${EBAY_CLIENT_ID:-}
+      EBAY_CLIENT_SECRET:   ${EBAY_CLIENT_SECRET:-}
+      BESTBUY_API_KEY:      ${BESTBUY_API_KEY:-}
+      REDDIT_CLIENT_ID:     ${REDDIT_CLIENT_ID:-}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
+      DISCORD_WEBHOOK_URL:  ${DISCORD_WEBHOOK_URL:-}
+      NTFY_TOPIC:           ${NTFY_TOPIC:-}
+
+    volumes:
+      # State. Without this the database is lost on every rebuild and the
+      # agent re-alerts everything it has ever seen.
+      - ./data:/app/data
+      # Mounted read-only so you can retune weights and restart, without the
+      # container ever being able to rewrite your config.
+      - ./config.yaml:/app/config.yaml:ro
+      # Discovery candidates, so you can review and approve them on the host.
+      - ./discovered_sources.yaml:/app/discovered_sources.yaml
+
+    # It is a cron container making a few dozen HTTP requests every 8 hours;
+    # it should never need more than this. A limit turns a runaway loop into a
+    # restart instead of a dead host.
+    deploy:
+      resources:
+        limits:
+          memory: 512M

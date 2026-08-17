@@ -1,0 +1,20 @@
+# Runtime dependencies, pinned.
+#
+# Everything network-facing is imported lazily, so the whole unit-test suite
+# runs without a network stack and without these installed beyond PyYAML.
+PyYAML==6.0.2
+requests==2.32.3
+
+# Stage 4: the HTML scraper. lxml is optional — bs4 falls back to the stdlib
+# html.parser if it's missing — but it is faster and more forgiving of the
+# malformed markup retailer sites tend to serve.
+beautifulsoup4==4.12.3
+lxml==5.3.0
+
+# Deliberately NOT dependencies:
+#   feedparser  - RSS/Atom parsing uses stdlib ElementTree. We need control
+#                 over custom namespaces (pepper:merchant, ozb:meta) that
+#                 feedparser flattens awkwardly.
+#   python-dotenv - run.py has a ten-line .env loader instead.
+#
+# Stage 5 (scheduling) needs nothing extra: GitHub Actions + cron + sqlite3.
