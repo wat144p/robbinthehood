@@ -75,6 +75,10 @@ class SiteConfig:
     seller_name: str = ""
     is_major_retailer: bool = False
     notes: str = ""
+    #: A retailer's "gaming laptops" category page also carries backpacks,
+    #: chargers, cooling pads and eGPU enclosures. Without this filter those
+    #: all arrive, fail to parse, and bury the real rejections in noise.
+    keyword_pattern: str | None = None
 
     @classmethod
     def from_dict(cls, name: str, block: dict) -> "SiteConfig":
@@ -90,6 +94,7 @@ class SiteConfig:
             seller_name=block.get("seller_name", name),
             is_major_retailer=bool(block.get("is_major_retailer", False)),
             notes=block.get("notes", ""),
+            keyword_pattern=block.get("keyword_pattern"),
         )
 
 
@@ -227,6 +232,14 @@ class HtmlSource(Source):
     def _node_to_listing(self, node, site: SiteConfig, page_url: str) -> Listing | None:
         title = _extract(node, site.selectors.get("title"))
         if not title:
+            return None
+
+        # Drop accessories before they reach the parser. A "gaming laptops"
+        # category page is full of backpacks, chargers and dock enclosures; let
+        # through, they all fail as UNPARSEABLE and drown the real rejections.
+        if site.keyword_pattern and not re.search(
+            site.keyword_pattern, title, re.IGNORECASE
+        ):
             return None
 
         price_text = _extract(node, site.selectors.get("price"))

@@ -605,6 +605,18 @@ sources:
         currency: USD
         keyword_pattern: "laptop|notebook|legion|predator|omen|nitro|rog |tuf "
 
+      camelcamelcamel:
+        # Amazon coverage WITHOUT scraping Amazon — their PA-API needs affiliate
+        # approval and scraping gets you IP-banned fast, so this is the sanctioned
+        # route. Verified 2026-08-17: HTTP 200, valid RSS 2.0.
+        # All-category feed, so the keyword filter is doing the real work.
+        enabled: true
+        url: "https://camelcamelcamel.com/top_drops/feed"
+        region: US
+        currency: USD
+        max_age_hours: 48
+        keyword_pattern: "laptop|notebook|legion|predator|omen|nitro|rog |tuf |vector|raider|aero|zephyrus|blade"
+
   # ---------------------------------------------------------------------------
   # Reddit (Tier 1)
   # ---------------------------------------------------------------------------
@@ -746,19 +758,69 @@ sources:
           price: ""
           url: ""
 
-      # -- Retailers. Selectors unverified; probe before enabling. ----------
+      # ---------------------------------------------------------------------
+      # Retailers.
+      #
+      # All 20 retailers named in the brief were probed on 2026-08-17. Only ONE
+      # serves prices in its server-rendered HTML to a polite HTTP client:
+      # Scan (UK), enabled below with verified selectors.
+      #
+      # The rest, and why:
+      #   HTTP 403 bot wall  Micro Center, B&H, Memory Express, Currys,
+      #                      Overclockers, Argos, Geizhals, notebooksbilliger,
+      #                      PC Case Gear
+      #   JavaScript-rendered  Newegg, Woot, Mindfactory, Scorptec,
+      #                        Lenovo Outlet (its visible "prices" are filter
+      #                        sidebar labels, not products)
+      #   Timed out / unknown  Best Buy Canada, Canada Computers, Acer Recertified
+      #   robots.txt disallow  Ebuyer
+      #
+      # NONE of the 20 publishes an RSS feed.
+      #
+      # This is why the APIs and community feeds carry the load: retailer
+      # scraping in 2026 mostly needs a headless browser, and the 403 group
+      # would need one with stealth patches — an arms race not worth entering
+      # for a personal tool. The stubs below are kept so that adding a headless
+      # fetcher later is a config change, not a rewrite.
+      # ---------------------------------------------------------------------
+
+      scan_uk:
+        # VERIFIED WORKING 2026-08-17. robots.txt allows, HTTP 200 to a polite
+        # User-Agent, 360 products in the server HTML with real prices.
+        enabled: true
+        base_url: "https://www.scan.co.uk"
+        region: GB
+        currency: GBP
+        paths:
+          - "/shop/computer-hardware/gaming-laptops"
+        seller_name: "Scan"
+        condition: NEW
+        # Their "gaming laptops" category also carries backpacks, chargers,
+        # cooling pads and eGPU enclosures. Require a GPU or a model family in
+        # the title so those never reach the parser.
+        keyword_pattern: "(rtx|geforce)\\s*\\d{4}|legion|predator|omen|nitro|rog |tuf |vector|raider|aero|zephyrus|blade|katana|cyborg"
+        selectors:
+          item: "li.product"
+          title: "span.description"
+          price: "span.price"
+          url: "a@href"
+        notes: >-
+          Prices render as "£ 3,799. 99" — note the space after the decimal
+          point. pricing.py handles it; without that the pence are dropped.
+
       currys:
-        enabled: false
+        enabled: false          # HTTP 403 to non-browser clients
         base_url: "https://www.currys.co.uk"
         region: GB
         currency: GBP
         paths: ["/gaming/laptops"]
         seller_name: "Currys"
         condition: NEW
+        notes: "Bot-walled (403). Needs a headless browser."
         selectors: {item: "", title: "", price: "", url: ""}
 
       geizhals:
-        enabled: false
+        enabled: false          # HTTP 403
         base_url: "https://geizhals.de"
         region: DE
         currency: EUR
@@ -766,19 +828,35 @@ sources:
         seller_name: "Geizhals"
         notes: >-
           The best price-comparison engine in Europe — aggregates most German
-          retailers in one query, so it is worth more than any single shop.
-          Remember the QWERTZ filter kills most German stock; only listings
-          explicitly stating a US/UK layout survive.
+          retailers in one query, so it is worth more than any single shop and
+          is the highest-value target here. Currently 403s non-browser clients.
+          Remember the QWERTZ filter kills most German stock anyway; only
+          listings explicitly stating a US/UK layout survive.
+        selectors: {item: "", title: "", price: "", url: ""}
+
+      newegg:
+        enabled: false          # 200 OK but JavaScript-rendered
+        base_url: "https://www.newegg.com"
+        region: US
+        currency: USD
+        paths: ["/Gaming-Laptops/SubCategory/ID-3365"]
+        seller_name: "Newegg"
+        condition: NEW
+        notes: "Returns 200 but the listings are client-rendered. Needs headless."
         selectors: {item: "", title: "", price: "", url: ""}
 
       canada_computers:
-        enabled: false
+        enabled: false          # connection timed out during probing
         base_url: "https://www.canadacomputers.com"
         region: CA
         currency: CAD
         paths: ["/en/powered-by-nvidia-laptops"]
         seller_name: "Canada Computers"
         condition: NEW
+        notes: >-
+          Timed out when probed — unknown rather than confirmed blocked. Canada
+          is co-primary with the US, so this one is worth retrying; eBay CA is
+          currently the only direct Canadian coverage.
         selectors: {item: "", title: "", price: "", url: ""}
 
   # ---------------------------------------------------------------------------

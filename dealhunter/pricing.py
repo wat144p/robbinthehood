@@ -65,7 +65,11 @@ _PERCENT_OFF = re.compile(r"(\d{1,2}(?:\.\d)?)\s*%\s*(?:off|rabatt|reduziert|ré
                           re.IGNORECASE)
 
 # A number that could be money: 1299, 1,299, 1.299,00, 1 299, 1299.99
-_NUMBER = r"\d{1,3}(?:[.,\s ]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?"
+#
+# The `\s?` before the decimal digits is not cosmetic: Scan UK renders prices
+# as "£ 3,799. 99", with a space after the decimal point. Without it the pence
+# are silently dropped, understating every price on that site.
+_NUMBER = r"\d{1,3}(?:[.,\s ]\d{3})*(?:[.,]\s?\d{1,2})?|\d+(?:[.,]\s?\d{1,2})?"
 
 
 @dataclass
