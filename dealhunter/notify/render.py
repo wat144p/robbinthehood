@@ -123,7 +123,7 @@ def build_alert(
         landed_usd=landed.landed_usd,
         landed_breakdown=explain_landed_cost(landed, region_cfg),
         floor_line=_floor_line(evaluated, config),
-        spec_line=_spec_line(evaluated),
+        spec_line=spec_line(evaluated),
         keyboard_line=_keyboard_line(layout, layout_explicit, listing.region),
         condition_line=_condition_line(evaluated),
         score=score.total,
@@ -178,7 +178,7 @@ def _floor_line(evaluated: EvaluatedListing, config: Config) -> str:
     return f"{model.display}: {verdict} (${model.floor_usd:,.0f})"
 
 
-def _spec_line(evaluated: EvaluatedListing) -> str:
+def spec_line(evaluated: EvaluatedListing) -> str:
     """The full parsed spec, with unknowns shown as unknown rather than hidden."""
     specs = evaluated.specs
 

@@ -1,0 +1,7 @@
+# Optional — only needed for the local dashboard (dashboard.py).
+#
+# Kept out of requirements.txt on purpose: the agent itself never imports
+# Flask, so the GitHub Actions runner and the Docker image stay lean. The
+# dashboard is a viewer you run on your own machine.
+-r requirements.txt
+Flask==3.1.0

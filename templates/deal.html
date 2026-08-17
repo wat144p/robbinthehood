@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}{{ deal.title[:60] }} — robbin-the-hood{% endblock %}
+
+{% block content %}
+
+<p><a href="{{ url_for('board') }}">← back to the board</a></p>
+
+<article class="deal detailview {{ 'priority' if deal.is_priority }}">
+  <div class="deal-left">
+    <div class="score">{{ '%g' % deal.score }}</div>
+    <div class="fresh {{ deal.freshness.value }}">{{ deal.freshness.label }}</div>
+    <div class="seen">{{ deal.age_display }}</div>
+  </div>
+
+  <div class="deal-main">
+    <div class="titlerow">
+      <span class="flagicon">{{ deal.region_flag }}</span>
+      <a class="title" href="{{ deal.url }}" target="_blank" rel="noopener">{{ deal.title }}</a>
+    </div>
+
+    <div class="prices">
+      <span class="landed">{{ deal.landed_display }}</span>
+      <span class="landedlabel">landed</span>
+      <span class="sticker">{{ deal.sticker_display }} sticker · {{ deal.region_name }}</span>
+    </div>
+
+    <div class="spec">{{ deal.spec_line }}</div>
+
+    <div class="meta">
+      <span>{{ deal.condition.replace('_', ' ') | lower }}</span>
+      {% if deal.seller_name %}<span>{{ deal.seller_name }}</span>{% endif %}
+      <span class="src">{{ deal.source }}</span>
+      <span>first seen {{ deal.first_seen | ago }}</span>
+    </div>
+
+    {% if deal.flags %}
+      <div class="flags">
+        {% for flag in deal.flags %}
+          <span class="flag {{ 'bad' if flag in ('HIGH_RISK', 'DOCK_STORAGE_TRAP')
+                               else ('warn' if flag.startswith('UNVERIFIED') else 'ok') }}">
+            {{ flag.replace('_', ' ') | lower }}
+          </span>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</article>
+
+<section class="changeblock">
+  <h2>Score breakdown</h2>
+  <p class="breakdown">{{ deal.score_breakdown or 'not recorded' }}</p>
+</section>
+
+<section class="changeblock">
+  <h2>How the landed price was worked out</h2>
+  {% if deal.landed_explain %}
+    <pre>{{ deal.landed_explain }}</pre>
+  {% else %}
+    <p class="none">Not recorded for this listing.</p>
+  {% endif %}
+  <p class="hint">
+    The FX rate is stored per listing, so this derivation stays honest even
+    when you read it weeks later at a different exchange rate.
+  </p>
+</section>
+
+<section class="changeblock">
+  <h2>Price history for this listing</h2>
+  {% if history | length > 1 %}
+    {% set values = history | map(attribute='landed_usd') | list %}
+    {% set lo = values | min %}
+    {% set hi = values | max %}
+    <div class="spark">
+      {% for point in history %}
+        {% set pct = 100 if hi == lo else ((point.landed_usd - lo) / (hi - lo) * 100) %}
+        <div class="bar" style="height: {{ 12 + pct * 0.78 }}%"
+             title="{{ point.seen_at }} — ${{ '%,.0f' % point.landed_usd }}"></div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <table class="models">
+    <thead>
+      <tr><th>Seen</th><th class="num">Landed USD</th><th class="num">Sticker</th>
+          <th class="num">FX used</th></tr>
+    </thead>
+    <tbody>
+      {% for point in history %}
+        <tr>
+          <td class="tiny">{{ point.seen_at }}</td>
+          <td class="num big">{{ point.landed_usd | money }}</td>
+          <td class="num">{{ '%.2f' % point.sticker_local }} {{ deal.currency }}</td>
+          <td class="num tiny">{{ '%.4f' % point.fx_rate if point.fx_rate else '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="none">Only ever seen at one price.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

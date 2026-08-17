@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Live board — robbin-the-hood{% endblock %}
+
+{% block content %}
+
+<div class="pagehead">
+  <h1>What you can buy right now</h1>
+  <p class="sub">
+    Ranked by score, but <strong>freshness wins first</strong> — a listing
+    confirmed in the last sweep outranks a higher-scoring one we haven't seen
+    in days. The all-time floor is shown as a reference column only; you can't
+    buy a price from six weeks ago.
+  </p>
+</div>
+
+<form class="filters" method="get">
+  <label>Region
+    <select name="region" onchange="this.form.submit()">
+      <option value="">all</option>
+      {% for code, cfg in config.regions.items() if cfg.enabled %}
+        <option value="{{ code.value }}" {{ 'selected' if selected_region == code.value }}>
+          {{ cfg.flag }} {{ cfg.display }}
+        </option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label>Sort
+    <select name="sort" onchange="this.form.submit()">
+      <option value="score"  {{ 'selected' if sort == 'score' }}>best score</option>
+      <option value="price"  {{ 'selected' if sort == 'price' }}>cheapest landed</option>
+      <option value="newest" {{ 'selected' if sort == 'newest' }}>newest arrivals</option>
+      <option value="moved"  {{ 'selected' if sort == 'moved' }}>biggest price move</option>
+    </select>
+  </label>
+
+  <label>Min score
+    <input type="number" name="min_score" value="{{ min_score }}" min="0" max="100" step="5">
+  </label>
+
+  <label class="check">
+    <input type="checkbox" name="stale" value="1" {{ 'checked' if include_stale }}
+           onchange="this.form.submit()">
+    show stale (72h+, probably sold)
+  </label>
+
+  <button type="submit">Apply</button>
+
+  <span class="count">
+    <strong>{{ counts.live }}</strong> live
+    {% if counts.total > counts.live %}
+      · {{ counts.total - counts.live }} unconfirmed
+    {% endif %}
+  </span>
+</form>
+
+{% if not deals %}
+  <div class="empty">
+    <h2>Nothing on the board</h2>
+    <p>
+      Either no sweep has run yet, or nothing currently listed clears the
+      filters. Run one with:
+    </p>
+    <pre>python run.py --once --dry-run</pre>
+    <p>
+      No API keys yet? Point the dashboard at the demo data instead:
+    </p>
+    <pre>python seed_demo.py
+python dashboard.py --db data/demo.db</pre>
+  </div>
+{% endif %}
+
+{% for deal in deals %}
+  <article class="deal {{ 'priority' if deal.is_priority }} {{ 'risky' if deal.is_high_risk }}">
+
+    <div class="deal-left">
+      <div class="score" title="0-100 score">{{ '%g' % deal.score }}</div>
+      <div class="fresh {{ deal.freshness.value }}">{{ deal.freshness.label }}</div>
+      <div class="seen">{{ deal.age_display }}</div>
+    </div>
+
+    <div class="deal-main">
+      <div class="titlerow">
+        <span class="flagicon">{{ deal.region_flag }}</span>
+        <a class="title" href="{{ deal.url }}" target="_blank" rel="noopener">{{ deal.title }}</a>
+      </div>
+
+      <div class="prices">
+        <span class="landed">{{ deal.landed_display }}</span>
+        <span class="landedlabel">landed</span>
+        <span class="sticker">{{ deal.sticker_display }} sticker · {{ deal.region_name }}</span>
+
+        {% if deal.is_best_available %}
+          <span class="badge best">cheapest listed now</span>
+        {% endif %}
+        {% if deal.own_change_usd and deal.own_change_usd < -1 %}
+          <span class="badge drop">↓ {{ deal.own_change_usd | signed }} since first seen</span>
+        {% elif deal.own_change_usd and deal.own_change_usd > 1 %}
+          <span class="badge rise">↑ {{ deal.own_change_usd | signed }} since first seen</span>
+        {% endif %}
+      </div>
+
+      <div class="spec">{{ deal.spec_line }}</div>
+
+      <div class="meta">
+        <span>{{ deal.condition.replace('_', ' ') | lower }}</span>
+        {% if deal.seller_name %}<span>{{ deal.seller_name }}</span>{% endif %}
+        <span class="src">{{ deal.source }}</span>
+        {% if deal.floor_usd %}
+          <span class="floorref" title="All-time low. Reference only — not necessarily buyable.">
+            record low {{ deal.floor_usd | money }}
+            {% if deal.vs_floor is not none %}
+              ({{ deal.vs_floor | signed }})
+            {% endif %}
+          </span>
+        {% endif %}
+      </div>
+
+      {% if deal.flags %}
+        <div class="flags">
+          {% for flag in deal.flags %}
+            <span class="flag {{ 'bad' if flag in ('HIGH_RISK', 'DOCK_STORAGE_TRAP')
+                                 else ('warn' if flag.startswith('UNVERIFIED') else 'ok') }}">
+              {{ flag.replace('_', ' ') | lower }}
+            </span>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <details>
+        <summary>why this score, and how the landed price was worked out</summary>
+        <div class="why">
+          <p class="breakdown">{{ deal.score_breakdown }}</p>
+          {% if deal.landed_explain %}<pre>{{ deal.landed_explain }}</pre>{% endif %}
+          <a class="detail" href="{{ url_for('deal', fingerprint=deal.fingerprint) }}">
+            price history for this listing →
+          </a>
+        </div>
+      </details>
+    </div>
+  </article>
+{% endfor %}
+
+{% endblock %}

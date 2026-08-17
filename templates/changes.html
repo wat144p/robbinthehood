@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}What changed — robbin-the-hood{% endblock %}
+
+{% block content %}
+
+<div class="pagehead">
+  <h1>What changed</h1>
+  <p class="sub">
+    The reason the agent sweeps every 8 hours. New arrivals and price moves are
+    what you act on; the rest of the board is standing inventory you've already
+    seen.
+  </p>
+</div>
+
+<form class="filters" method="get">
+  <label>Window
+    <select name="hours" onchange="this.form.submit()">
+      <option value="8"   {{ 'selected' if hours == 8 }}>last sweep (8h)</option>
+      <option value="24"  {{ 'selected' if hours == 24 }}>last 24 hours</option>
+      <option value="72"  {{ 'selected' if hours == 72 }}>last 3 days</option>
+      <option value="168" {{ 'selected' if hours == 168 }}>last week</option>
+    </select>
+  </label>
+</form>
+
+<section class="changeblock">
+  <h2><span class="dot new"></span> New arrivals
+    <span class="n">{{ changes.new | length }}</span></h2>
+  {% if changes.new %}
+    <ul class="changes">
+      {% for c in changes.new %}
+        <li>
+          <span class="flagicon">{{ c.region_flag }}</span>
+          <span class="amount">{{ c.landed_usd | money }}</span>
+          <a href="{{ c.url }}" target="_blank" rel="noopener">{{ c.title }}</a>
+          <span class="when">{{ c.when | ago }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="none">Nothing new in this window.</p>
+  {% endif %}
+</section>
+
+<section class="changeblock">
+  <h2><span class="dot drop"></span> Price drops
+    <span class="n">{{ changes.drops | length }}</span></h2>
+  {% if changes.drops %}
+    <ul class="changes">
+      {% for c in changes.drops %}
+        <li>
+          <span class="flagicon">{{ c.region_flag }}</span>
+          <span class="amount">{{ c.landed_usd | money }}</span>
+          <span class="delta down">{{ c.delta | signed }} ({{ '%.1f' % c.percent }}%)</span>
+          <a href="{{ c.url }}" target="_blank" rel="noopener">{{ c.title }}</a>
+          <span class="when">{{ c.when | ago }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="none">No price drops in this window.</p>
+  {% endif %}
+</section>
+
+<section class="changeblock">
+  <h2><span class="dot rise"></span> Price rises
+    <span class="n">{{ changes.rises | length }}</span></h2>
+  {% if changes.rises %}
+    <ul class="changes">
+      {% for c in changes.rises %}
+        <li>
+          <span class="flagicon">{{ c.region_flag }}</span>
+          <span class="amount">{{ c.landed_usd | money }}</span>
+          <span class="delta up">{{ c.delta | signed }} ({{ '%.1f' % c.percent }}%)</span>
+          <a href="{{ c.url }}" target="_blank" rel="noopener">{{ c.title }}</a>
+          <span class="when">{{ c.when | ago }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="none">No price rises in this window.</p>
+  {% endif %}
+</section>
+
+<section class="changeblock">
+  <h2><span class="dot gone"></span> Gone
+    <span class="n">{{ changes.gone | length }}</span></h2>
+  <p class="hint">
+    Not seen for 7 days. Usually means it sold — which is itself a signal about
+    what that configuration is worth.
+  </p>
+  {% if changes.gone %}
+    <ul class="changes">
+      {% for c in changes.gone %}
+        <li class="faded">
+          <span class="flagicon">{{ c.region_flag }}</span>
+          <span class="amount">{{ c.landed_usd | money }}</span>
+          <span>{{ c.title }}</span>
+          <span class="when">last seen {{ c.when | ago }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="none">Nothing has dropped off recently.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

@@ -2,7 +2,7 @@ _comment: Discovered by the monthly source-discovery pass. Nothing here is activ
   To enable one, set its status to 'approved', then add a matching entry under sources.rss.feeds
   or sources.html.sites in config.yaml. Setting status to 'rejected' stops it being
   resurfaced next month.
-last_run: '2026-08-17T19:55:23.420241+00:00'
+last_run: '2026-08-17T22:13:44.862444+00:00'
 candidates:
 - url: https://www.pcgamer.com/gaming-laptop-deals
   name: Best deals on gaming laptops | PC Gamer

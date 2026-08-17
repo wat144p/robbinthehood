@@ -19,3 +19,6 @@ data/*.db-shm
 data/fx_cache.json
 *.log
 .env
+
+# Demo database — regenerate with: python seed_demo.py
+data/demo.db

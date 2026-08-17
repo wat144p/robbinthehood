@@ -1,0 +1,238 @@
+/* robbin-the-hood dashboard.
+   Dark by default because you'll be reading this at odd hours, and because
+   the price figures need to be the brightest thing on the page. */
+
+:root {
+  --bg:        #0f1115;
+  --panel:     #171a21;
+  --panel-2:   #1d212a;
+  --line:      #262b36;
+  --text:      #e6e9ef;
+  --muted:     #8d95a5;
+  --dim:       #616a7c;
+
+  --accent:    #4da3ff;   /* landed price — the number that matters */
+  --good:      #35c46f;
+  --warn:      #e8b339;
+  --bad:       #ef5f5f;
+  --priority:  #b98bff;
+
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---------------------------------------------------------------- topbar */
+
+.topbar {
+  display: flex; align-items: center; gap: 24px;
+  padding: 12px 24px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 10;
+}
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 650; }
+.logo { font-size: 20px; }
+
+.topbar nav { display: flex; gap: 4px; }
+.topbar nav a {
+  padding: 6px 12px; border-radius: var(--radius);
+  color: var(--muted); font-size: 14px;
+}
+.topbar nav a:hover { background: var(--panel-2); color: var(--text); text-decoration: none; }
+.topbar nav a.on { background: var(--panel-2); color: var(--text); }
+
+.status { margin-left: auto; display: flex; align-items: center; gap: 16px;
+          font-size: 13px; color: var(--muted); }
+.sweep.warn { color: var(--warn); }
+.refresh { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+
+main { max-width: 1180px; margin: 0 auto; padding: 24px; }
+
+/* -------------------------------------------------------------- headings */
+
+.pagehead h1 { margin: 0 0 6px; font-size: 24px; }
+.pagehead .sub { margin: 0 0 20px; color: var(--muted); max-width: 74ch; }
+
+/* --------------------------------------------------------------- filters */
+
+.filters {
+  display: flex; flex-wrap: wrap; gap: 14px; align-items: end;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px;
+}
+.filters label { display: flex; flex-direction: column; gap: 4px;
+                 font-size: 12px; color: var(--muted); }
+.filters label.check { flex-direction: row; align-items: center; gap: 6px; }
+.filters select, .filters input[type="number"] {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; font-size: 14px;
+}
+.filters input[type="number"] { width: 90px; }
+.filters button {
+  background: var(--accent); color: #04101f; border: 0; font-weight: 650;
+  border-radius: 7px; padding: 8px 16px; cursor: pointer; font-size: 14px;
+}
+.filters .count { margin-left: auto; font-size: 13px; color: var(--muted); }
+
+/* ----------------------------------------------------------------- deals */
+
+.deal {
+  display: flex; gap: 18px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: var(--radius); padding: 16px; margin-bottom: 12px;
+}
+.deal.priority { border-left-color: var(--priority); }
+.deal.risky    { border-left-color: var(--bad); }
+
+.deal-left { width: 84px; flex: none; text-align: center; }
+.score { font-size: 30px; font-weight: 700; line-height: 1; }
+.fresh { margin-top: 8px; font-size: 10px; text-transform: uppercase;
+         letter-spacing: .06em; padding: 3px 6px; border-radius: 5px; }
+.fresh.live   { background: rgba(53,196,111,.16); color: var(--good); }
+.fresh.recent { background: rgba(232,179,57,.14); color: var(--warn); }
+.fresh.aging  { background: rgba(232,179,57,.10); color: var(--warn); }
+.fresh.stale  { background: rgba(239,95,95,.13);  color: var(--bad); }
+.fresh.gone   { background: var(--panel-2); color: var(--dim); }
+.seen { margin-top: 5px; font-size: 11px; color: var(--dim); }
+
+.deal-main { flex: 1; min-width: 0; }
+.titlerow { display: flex; gap: 8px; align-items: baseline; }
+.flagicon { font-size: 16px; }
+.title { font-weight: 600; }
+
+.prices { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline;
+          margin: 8px 0 6px; }
+.landed { font-size: 24px; font-weight: 700; color: var(--accent); }
+.landedlabel { font-size: 11px; color: var(--dim); text-transform: uppercase;
+               letter-spacing: .06em; margin-left: -6px; }
+.sticker { font-size: 13px; color: var(--muted); }
+
+.badge { font-size: 11px; padding: 3px 8px; border-radius: 20px; font-weight: 600; }
+.badge.best { background: rgba(53,196,111,.16); color: var(--good); }
+.badge.drop { background: rgba(53,196,111,.16); color: var(--good); }
+.badge.rise { background: rgba(239,95,95,.14);  color: var(--bad); }
+
+.spec { font-size: 13px; color: var(--muted);
+        font-family: ui-monospace, "Cascadia Code", Consolas, monospace; margin: 6px 0; }
+
+.meta { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px;
+        color: var(--dim); margin-top: 6px; }
+.meta .src { font-family: ui-monospace, monospace; }
+/* The all-time floor is a yardstick, not a target — styled to recede. */
+.floorref { color: var(--dim); font-style: italic; }
+
+.flags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.flag { font-size: 11px; padding: 2px 7px; border-radius: 5px;
+        background: var(--panel-2); color: var(--muted); }
+.flag.bad  { background: rgba(239,95,95,.14); color: var(--bad); }
+.flag.warn { background: rgba(232,179,57,.13); color: var(--warn); }
+
+details { margin-top: 10px; }
+summary { cursor: pointer; font-size: 12px; color: var(--dim); }
+summary:hover { color: var(--muted); }
+.why { margin-top: 10px; padding: 12px; background: var(--panel-2);
+       border-radius: 8px; }
+.breakdown { font-size: 13px; margin: 0 0 8px;
+             font-family: ui-monospace, monospace; color: var(--muted); }
+.why pre, section pre {
+  margin: 0; padding: 10px; background: var(--bg); border-radius: 6px;
+  font-size: 12px; color: var(--muted); overflow-x: auto;
+}
+.detail { display: inline-block; margin-top: 10px; font-size: 12px; }
+
+/* --------------------------------------------------------------- changes */
+
+.changeblock { margin: 28px 0; }
+.changeblock h2 { font-size: 16px; display: flex; align-items: center; gap: 9px;
+                  margin: 0 0 10px; }
+.changeblock h2 .n { font-size: 12px; color: var(--dim); font-weight: 400; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot.new { background: var(--accent); }
+.dot.drop { background: var(--good); }
+.dot.rise { background: var(--bad); }
+.dot.gone { background: var(--dim); }
+
+ul.changes { list-style: none; margin: 0; padding: 0;
+             border: 1px solid var(--line); border-radius: var(--radius);
+             overflow: hidden; }
+ul.changes li { display: flex; gap: 12px; align-items: baseline;
+                padding: 10px 14px; background: var(--panel);
+                border-bottom: 1px solid var(--line); font-size: 14px; }
+ul.changes li:last-child { border-bottom: 0; }
+ul.changes li.faded { opacity: .55; }
+ul.changes .amount { font-weight: 700; color: var(--accent); min-width: 74px; }
+ul.changes a { flex: 1; }
+ul.changes .when { font-size: 12px; color: var(--dim); margin-left: auto;
+                   white-space: nowrap; }
+.delta { font-size: 12px; font-weight: 650; padding: 2px 7px; border-radius: 5px;
+         white-space: nowrap; }
+.delta.down { background: rgba(53,196,111,.16); color: var(--good); }
+.delta.up   { background: rgba(239,95,95,.14);  color: var(--bad); }
+
+.none, .hint { color: var(--dim); font-size: 13px; }
+.hint { max-width: 74ch; }
+
+/* ---------------------------------------------------------------- tables */
+
+table.models { width: 100%; border-collapse: collapse; font-size: 14px;
+               background: var(--panel); border: 1px solid var(--line);
+               border-radius: var(--radius); overflow: hidden; }
+table.models th { text-align: left; padding: 10px 14px; font-size: 12px;
+                  color: var(--muted); background: var(--panel-2);
+                  border-bottom: 1px solid var(--line); font-weight: 600; }
+table.models td { padding: 11px 14px; border-bottom: 1px solid var(--line);
+                  vertical-align: top; }
+table.models tr:last-child td { border-bottom: 0; }
+table.models .num { text-align: right; }
+table.models tr.triggering { background: rgba(185,139,255,.07); }
+.big { font-size: 17px; font-weight: 700; color: var(--accent); }
+.tiny { font-size: 11px; color: var(--dim); }
+.reference { color: var(--dim); font-style: italic; }
+.trigger { font-size: 11px; color: var(--priority); margin-top: 3px; }
+.good { color: var(--good); }
+.ok   { color: var(--warn); }
+.meh  { color: var(--dim); }
+.bad  { color: var(--bad); }
+
+/* ------------------------------------------------------------ stat cards */
+
+.statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 12px; margin-bottom: 26px; }
+.stat { background: var(--panel); border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 14px; }
+.statnum { font-size: 24px; font-weight: 700; }
+.statlabel { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* -------------------------------------------------------------- sparkline */
+
+.spark { display: flex; align-items: flex-end; gap: 3px; height: 90px;
+         padding: 10px; background: var(--panel); border: 1px solid var(--line);
+         border-radius: var(--radius); margin-bottom: 14px; }
+.spark .bar { flex: 1; min-width: 4px; background: var(--accent);
+              border-radius: 2px 2px 0 0; opacity: .8; }
+.spark .bar:hover { opacity: 1; }
+
+/* ------------------------------------------------------------------ misc */
+
+.empty { text-align: center; padding: 50px 20px; background: var(--panel);
+         border: 1px dashed var(--line); border-radius: var(--radius); }
+.empty h2 { margin: 0 0 8px; font-size: 18px; }
+.empty p { color: var(--muted); }
+.empty pre { display: inline-block; text-align: left; margin: 8px auto; }
+
+footer { max-width: 1180px; margin: 30px auto 40px; padding: 0 24px;
+         font-size: 12px; color: var(--dim); }
+
+.detailview { margin-bottom: 24px; }

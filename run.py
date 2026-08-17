@@ -198,7 +198,10 @@ def main(argv: list[str] | None = None) -> int:
     price_drops, price_rises = store.price_movements(evaluated)
     gone = store.expire_stale(days=int(config.notification.get("expire_days", 7)))
 
-    store.record_listings(evaluated)
+    # `config` is passed so the reasoning (spec line, score breakdown, landed
+    # derivation) is captured alongside the numbers — the dashboard shows it,
+    # and it cannot be reconstructed from a stored row afterwards.
+    store.record_listings(evaluated, config)
     floor_updates = store.update_floors(evaluated)
     for note in floor_updates:
         log.info("Floor updated: %s", note)

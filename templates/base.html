@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}robbin-the-hood{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">🏹</span>
+    <span>robbin-the-hood</span>
+  </div>
+
+  <nav>
+    <a href="{{ url_for('board') }}"        class="{{ 'on' if active == 'board' }}">Live board</a>
+    <a href="{{ url_for('changes') }}"      class="{{ 'on' if active == 'changes' }}">What changed</a>
+    <a href="{{ url_for('models') }}"       class="{{ 'on' if active == 'models' }}">Target models</a>
+    <a href="{{ url_for('health_page') }}"  class="{{ 'on' if active == 'health' }}">Health</a>
+  </nav>
+
+  <div class="status">
+    {% if latest_run %}
+      <span class="sweep">last sweep <strong>{{ latest_run | ago }}</strong></span>
+    {% else %}
+      <span class="sweep warn">no completed sweep yet</span>
+    {% endif %}
+    <label class="refresh">
+      <input type="checkbox" id="autorefresh"> auto
+    </label>
+  </div>
+</header>
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<footer>
+  Every price shown is <strong>landed USD</strong> — the full cost to your
+  contact, including tax, shipping, FX and the regional risk premium. Sticker
+  prices across currencies are not comparable and are shown only alongside.
+</footer>
+
+<script>
+  // Auto-refresh every 2 minutes. Off by default and remembered, because a
+  // page that reloads while you're reading a spec line is infuriating.
+  (function () {
+    var box = document.getElementById('autorefresh');
+    var timer = null;
+
+    function apply(on) {
+      if (on && !timer) {
+        timer = setTimeout(function () { location.reload(); }, 120000);
+      } else if (!on && timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    }
+
+    box.checked = localStorage.getItem('autorefresh') === '1';
+    apply(box.checked);
+
+    box.addEventListener('change', function () {
+      localStorage.setItem('autorefresh', box.checked ? '1' : '0');
+      apply(box.checked);
+    });
+  })();
+</script>
+
+</body>
+</html>

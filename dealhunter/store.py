@@ -38,7 +38,7 @@ from .models import EvaluatedListing, Flag
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -68,6 +68,12 @@ CREATE TABLE IF NOT EXISTS listings (
     seller_name     TEXT,
     flags           TEXT,
     reject_reasons  TEXT,
+    -- Reasoning, captured at scoring time. The parsed specs and score
+    -- components are not otherwise reconstructable from a stored row, and a
+    -- dashboard that shows a number without showing why is not much use.
+    spec_line       TEXT,
+    score_breakdown TEXT,
+    landed_explain  TEXT,
     first_seen      TEXT NOT NULL,
     last_seen       TEXT NOT NULL,
     status          TEXT NOT NULL DEFAULT 'active'
@@ -226,7 +232,18 @@ class Store:
                     "INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,)
                 )
             elif row["version"] < SCHEMA_VERSION:
-                # Future migrations branch here on the stored version.
+                if row["version"] < 2:
+                    # v2 added the reasoning columns. ADD COLUMN is
+                    # non-destructive and cheap, so an existing database
+                    # upgrades in place without losing a single row.
+                    for column in ("spec_line", "score_breakdown", "landed_explain"):
+                        try:
+                            connection.execute(
+                                f"ALTER TABLE listings ADD COLUMN {column} TEXT"
+                            )
+                        except sqlite3.OperationalError:
+                            pass    # already present; nothing to do
+
                 connection.execute(
                     "UPDATE schema_version SET version = ?", (SCHEMA_VERSION,)
                 )
@@ -235,12 +252,24 @@ class Store:
     # Listings and price history
     # -----------------------------------------------------------------------
 
-    def record_listings(self, evaluated: list[EvaluatedListing]) -> None:
+    def record_listings(
+        self, evaluated: list[EvaluatedListing], config: Config | None = None
+    ) -> None:
         """Upsert every listing this run saw, and log any price change.
 
         Rejected listings are stored too — with their reasons — so you can
         audit what was thrown away without re-running the fetch.
+
+        Pass `config` to also capture the reasoning (spec line, score
+        breakdown, landed-cost derivation). Those cannot be reconstructed from
+        a stored row later, so if they aren't captured here the dashboard can
+        only show numbers without explanations.
         """
+        # Imported here rather than at module scope to keep the store usable
+        # without pulling in the notification layer.
+        from .notify.render import spec_line as build_spec_line
+        from .regions import explain_landed_cost
+
         now = _now()
 
         with self._tx() as connection:
@@ -254,31 +283,41 @@ class Store:
                     (fingerprint,),
                 ).fetchone()
 
+                explain = ""
+                if item.landed is not None and config is not None:
+                    explain = explain_landed_cost(
+                        item.landed, config.region(listing.region)
+                    )
+
                 connection.execute(
                     """
                     INSERT INTO listings (
                         fingerprint, source, listing_id, title, url, region,
                         currency, sticker_local, landed_usd, fx_rate, fx_source,
                         fx_fetched_at, score, model_key, condition, seller_name,
-                        flags, reject_reasons, first_seen, last_seen, status
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'active')
+                        flags, reject_reasons, spec_line, score_breakdown,
+                        landed_explain, first_seen, last_seen, status
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'active')
                     ON CONFLICT(fingerprint) DO UPDATE SET
-                        title          = excluded.title,
-                        url            = excluded.url,
-                        sticker_local  = excluded.sticker_local,
-                        landed_usd     = excluded.landed_usd,
-                        fx_rate        = excluded.fx_rate,
-                        fx_source      = excluded.fx_source,
-                        fx_fetched_at  = excluded.fx_fetched_at,
-                        score          = excluded.score,
-                        model_key      = excluded.model_key,
-                        condition      = excluded.condition,
-                        seller_name    = excluded.seller_name,
-                        flags          = excluded.flags,
-                        reject_reasons = excluded.reject_reasons,
-                        last_seen      = excluded.last_seen,
+                        title           = excluded.title,
+                        url             = excluded.url,
+                        sticker_local   = excluded.sticker_local,
+                        landed_usd      = excluded.landed_usd,
+                        fx_rate         = excluded.fx_rate,
+                        fx_source       = excluded.fx_source,
+                        fx_fetched_at   = excluded.fx_fetched_at,
+                        score           = excluded.score,
+                        model_key       = excluded.model_key,
+                        condition       = excluded.condition,
+                        seller_name     = excluded.seller_name,
+                        flags           = excluded.flags,
+                        reject_reasons  = excluded.reject_reasons,
+                        spec_line       = excluded.spec_line,
+                        score_breakdown = excluded.score_breakdown,
+                        landed_explain  = excluded.landed_explain,
+                        last_seen       = excluded.last_seen,
                         -- Seeing it again resurrects a listing marked gone.
-                        status         = 'active'
+                        status          = 'active'
                     """,
                     (
                         fingerprint, listing.source, listing.listing_id,
@@ -292,6 +331,9 @@ class Store:
                         listing.seller_name,
                         json.dumps([f.value for f in item.all_flags]),
                         json.dumps([r.value for r in item.reject_reasons]),
+                        build_spec_line(item),
+                        item.score.breakdown_line(top_n=9) if item.score else None,
+                        explain,
                         now, now,
                     ),
                 )
@@ -541,6 +583,28 @@ class Store:
                 (_now(), listings_seen, alerts_sent, int(digest_sent),
                  int(discovery_run), notes, run_id),
             )
+
+    def latest_run_at(self) -> datetime | None:
+        """When the most recent completed sweep started.
+
+        This is the dividing line between "confirmed available right now" and
+        "we haven't actually seen this since some earlier sweep". With runs
+        every 8 hours, a listing that missed the last one is already suspect —
+        far more useful than waiting 7 days to call it gone.
+        """
+        row = self.connection.execute(
+            "SELECT started_at FROM runs WHERE finished_at IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return datetime.fromisoformat(row["started_at"]) if row else None
+
+    def previous_run_at(self) -> datetime | None:
+        """When the sweep before last started — the window for 'what changed'."""
+        rows = self.connection.execute(
+            "SELECT started_at FROM runs WHERE finished_at IS NOT NULL "
+            "ORDER BY id DESC LIMIT 2"
+        ).fetchall()
+        return datetime.fromisoformat(rows[1]["started_at"]) if len(rows) > 1 else None
 
     def last_digest_at(self) -> datetime | None:
         """When we last sent a digest, for the 09:00 PKT scheduling rule."""

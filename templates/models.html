@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Target models — robbin-the-hood{% endblock %}
+
+{% block content %}
+
+<div class="pagehead">
+  <h1>Target models</h1>
+  <p class="sub">
+    For each tracked model: <strong>what's actually listed right now</strong>,
+    with the record low beside it purely as a yardstick for whether today's
+    price is good.
+  </p>
+</div>
+
+<table class="models">
+  <thead>
+    <tr>
+      <th>Model</th>
+      <th class="num">Best listed now</th>
+      <th class="num">Record low</th>
+      <th class="num">Above record</th>
+      <th class="num">Live</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for w in watches %}
+      <tr class="{{ 'triggering' if w.triggers_alert }}">
+        <td>
+          <strong>{{ w.display }}</strong>
+          {% if w.priority_trigger_usd %}
+            <div class="trigger">alerts at or under {{ w.priority_trigger_usd | money }}</div>
+          {% endif %}
+        </td>
+
+        <td class="num">
+          {% if w.best_available_usd %}
+            <span class="big">{{ w.best_available_usd | money }}</span>
+            {% if w.best_region %}<div class="tiny">{{ w.best_region }}</div>{% endif %}
+          {% else %}
+            <span class="none">none listed</span>
+          {% endif %}
+        </td>
+
+        <td class="num reference">{{ w.floor_usd | money }}</td>
+
+        <td class="num">
+          {% if w.above_floor is not none %}
+            <span class="{{ 'good' if w.above_floor <= 0 else ('ok' if w.above_floor < 100 else 'meh') }}">
+              {{ w.above_floor | signed }}
+            </span>
+          {% else %}
+            —
+          {% endif %}
+        </td>
+
+        <td class="num">{{ w.live_count or '—' }}</td>
+
+        <td>
+          {% if w.triggers_alert %}<span class="badge best">triggering</span>{% endif %}
+          {% if w.best_url %}
+            <a href="{{ w.best_url }}" target="_blank" rel="noopener">open →</a>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="hint">
+  A model showing <em>none listed</em> isn't unavailable — it means nothing
+  matching it passed the hard filters in the latest sweeps. Check
+  <a href="{{ url_for('health_page') }}">Health</a> for what's being rejected
+  and why.
+</p>
+
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Health — robbin-the-hood{% endblock %}
+
+{% block content %}
+
+<div class="pagehead">
+  <h1>Health</h1>
+  <p class="sub">Is the schedule firing, and are the sources actually producing?</p>
+</div>
+
+<div class="statgrid">
+  {% for key, value in health.totals.items() %}
+    <div class="stat">
+      <div class="statnum">{{ '{:,}'.format(value) }}</div>
+      <div class="statlabel">{{ key.replace('_', ' ') }}</div>
+    </div>
+  {% endfor %}
+</div>
+
+<section class="changeblock">
+  <h2>Sources</h2>
+  <table class="models">
+    <thead>
+      <tr>
+        <th>Source</th><th class="num">Seen</th><th class="num">Active</th>
+        <th class="num">Passed filters</th><th class="num">Avg score</th>
+        <th>Last produced</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in health.sources %}
+        <tr>
+          <td>{{ s.source }}</td>
+          <td class="num">{{ s.total }}</td>
+          <td class="num">{{ s.active }}</td>
+          <td class="num {{ 'good' if s.passed else 'none' }}">{{ s.passed }}</td>
+          <td class="num">{{ s.avg_score if s.avg_score is not none else '—' }}</td>
+          <td class="tiny">{{ s.last_produced or '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="none">No sources have produced anything yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="changeblock">
+  <h2>Why listings were rejected</h2>
+  <p class="hint">
+    A spike in <code>UNPARSEABLE</code> means the parser needs work on real
+    titles — <em>not</em> that the filters need loosening.
+  </p>
+  <table class="models">
+    <thead><tr><th>Reason</th><th class="num">Listings</th></tr></thead>
+    <tbody>
+      {% for r in health.rejections %}
+        <tr>
+          <td>{{ r.reason.replace('_', ' ') | lower }}</td>
+          <td class="num">{{ r.n }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="2" class="none">Nothing rejected yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="changeblock">
+  <h2>Recent sweeps</h2>
+  <table class="models">
+    <thead>
+      <tr>
+        <th>Started</th><th class="num">Listings</th><th class="num">Alerts</th>
+        <th>Digest</th><th>Discovery</th><th>Failures</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in health.runs %}
+        <tr>
+          <td class="tiny">{{ r.started_at }}</td>
+          <td class="num">{{ r.listings_seen }}</td>
+          <td class="num">{{ r.alerts_sent }}</td>
+          <td>{{ 'yes' if r.digest_sent else '' }}</td>
+          <td>{{ 'yes' if r.discovery_run else '' }}</td>
+          <td class="tiny {{ 'bad' if r.notes }}">{{ r.notes or '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="none">No sweeps recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}
