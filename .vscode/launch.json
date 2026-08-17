@@ -1,0 +1,93 @@
+{
+  // Run these from the Run and Debug panel (Ctrl+Shift+D) instead of typing
+  // flags. Breakpoints work in all of them — set one in scoring.py and pick
+  // "Demo" to step through how a listing actually gets its score.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Demo (no keys, no network)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/demo.py",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Dry run — all sources",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run.py",
+      "args": ["--once", "--dry-run"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Dry run — eBay only",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run.py",
+      "args": ["--once", "--dry-run", "--source", "ebay"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Dry run — show what got rejected",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run.py",
+      "args": ["--once", "--dry-run", "--show-rejected"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Dry run — preview every alert (ignore dedup)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run.py",
+      "args": ["--once", "--dry-run", "--ignore-state", "--force-digest"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "LIVE run — actually sends notifications",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run.py",
+      "args": ["--once"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Database stats",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run.py",
+      "args": ["--stats"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Probe a scraper site…",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run.py",
+      // Prompts for the site name; try "gaminglaptop_deals" or "currys".
+      "args": ["--probe", "${input:siteName}"],
+      "console": "integratedTerminal"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "siteName",
+      "type": "pickString",
+      "description": "Which site under sources.html.sites?",
+      "options": [
+        "gaminglaptop_deals",
+        "bestlaptop_deals",
+        "currys",
+        "geizhals",
+        "canada_computers"
+      ],
+      "default": "currys"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  // VS Code offers to install these the first time you open the folder.
+  // None are required — the project works from a bare terminal — but each one
+  // removes a step you'd otherwise do by hand.
+  "recommendations": [
+    // Running and debugging Python, plus the test panel.
+    "ms-python.python",
+
+    // Click data/deals.db in the file tree and browse the tables. This is the
+    // simplest way to see what the agent has actually recorded.
+    "qwtel.sqlite-viewer",
+
+    // config.yaml is the only file you should need to edit; this gives it
+    // syntax checking so a mis-indented block fails in the editor rather than
+    // at startup.
+    "redhat.vscode-yaml",
+
+    // Watch the 8-hourly GitHub Actions runs from the sidebar instead of
+    // opening the browser.
+    "github.vscode-github-actions"
+  ]
+}

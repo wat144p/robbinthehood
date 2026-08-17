@@ -1,0 +1,19 @@
+{
+  // Test panel: pytest, discovered from tests/. Gives you a green/red tree in
+  // the Testing sidebar and a per-test run button in the gutter.
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": ["tests"],
+
+  // The scoring rubric and landed-cost comments are wide; this keeps them
+  // readable rather than wrapped mid-sentence.
+  "editor.rulers": [88],
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    // Transient SQLite sidecars — noise in the file tree.
+    "**/*.db-wal": true,
+    "**/*.db-shm": true
+  }
+}
