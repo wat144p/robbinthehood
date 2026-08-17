@@ -1,0 +1,197 @@
+# Datasette configuration — turns data/deals.db into a browsable local GUI.
+#
+#   python -m pip install datasette
+#   datasette data/deals.db -m datasette.yml --open
+#
+# The canned queries below appear on the database homepage, so you get useful
+# views immediately instead of a blank SQL box.
+
+title: robbin-the-hood
+description: >-
+  Gaming laptop deal tracking. Every price is normalised to landed USD before
+  comparison — sticker prices across currencies and tax regimes are not
+  comparable, so sort by landed_usd, never by sticker_local.
+
+databases:
+  deals:
+    tables:
+      listings:
+        sort_desc: score
+        # Click these in the sidebar to filter without writing SQL.
+        facets: [region, source, status, condition]
+        columns:
+          landed_usd: The number that actually matters — full cost to your contact
+          sticker_local: Advertised price in the seller's own currency
+          fx_rate: The rate used at the time, so old rows stay honest
+          flags: UNVERIFIED / HIGH RISK markers, as JSON
+          status: active, or gone if unseen for 7 days
+
+      price_history:
+        sort_desc: seen_at
+        description: One row per price CHANGE, not per sighting.
+
+      floors:
+        description: >-
+          Per-model record lows. Seeded from config.yaml, then lowered only by
+          verified sightings — community claims can never set a floor.
+
+      notifications:
+        sort_desc: notified_at
+        description: What you have already been told about, and at what price.
+
+    queries:
+      top_deals:
+        title: Top active deals, best score first
+        sql: |-
+          select
+            round(score, 1)          as score,
+            region,
+            '$' || printf('%,.0f', landed_usd) as landed_usd,
+            sticker_local || ' ' || currency   as sticker,
+            substr(title, 1, 70)     as title,
+            condition,
+            seller_name,
+            flags,
+            url
+          from listings
+          where status = 'active' and score is not null
+          order by score desc
+          limit 50
+
+      cheapest_by_region:
+        title: Cheapest landed cost in each region
+        sql: |-
+          select
+            region,
+            count(*)                 as listings,
+            round(min(landed_usd))   as cheapest_landed_usd,
+            round(avg(landed_usd))   as average_landed_usd
+          from listings
+          where status = 'active' and landed_usd is not null
+          group by region
+          order by cheapest_landed_usd
+
+      inside_budget:
+        title: Inside the $1,000-1,200 target zone
+        sql: |-
+          select
+            round(score, 1) as score, region,
+            round(landed_usd) as landed_usd,
+            substr(title, 1, 70) as title, url
+          from listings
+          where status = 'active'
+            and landed_usd between 1000 and 1200
+          order by score desc
+
+      biggest_price_drops:
+        title: Biggest price drops, all time
+        sql: |-
+          -- Compares each listing's first recorded price with its latest.
+          select
+            substr(l.title, 1, 60)                       as title,
+            l.region,
+            round(first_seen.landed_usd)                 as was_usd,
+            round(latest.landed_usd)                     as now_usd,
+            round(latest.landed_usd - first_seen.landed_usd) as change_usd,
+            round(100.0 * (latest.landed_usd - first_seen.landed_usd)
+                  / first_seen.landed_usd, 1)            as change_pct,
+            l.url
+          from listings l
+          join (
+            select fingerprint, landed_usd,
+                   row_number() over (partition by fingerprint order by seen_at) as rn
+            from price_history
+          ) first_seen on first_seen.fingerprint = l.fingerprint and first_seen.rn = 1
+          join (
+            select fingerprint, landed_usd,
+                   row_number() over (partition by fingerprint order by seen_at desc) as rn
+            from price_history
+          ) latest on latest.fingerprint = l.fingerprint and latest.rn = 1
+          where latest.landed_usd < first_seen.landed_usd
+          order by change_pct
+          limit 30
+
+      price_history_for_model:
+        title: Price history for one model
+        sql: |-
+          select
+            ph.seen_at,
+            l.region,
+            round(ph.landed_usd)  as landed_usd,
+            ph.sticker_local,
+            l.currency,
+            round(ph.fx_rate, 4)  as fx_rate_used,
+            substr(l.title, 1, 60) as title
+          from price_history ph
+          join listings l on l.fingerprint = ph.fingerprint
+          where l.model_key = :model_key
+          order by ph.seen_at
+        # Try: acer_predator_helios_neo_16s_ai
+
+      floors_vs_current:
+        title: Record lows, and how close current stock is
+        sql: |-
+          select
+            f.model_key,
+            round(f.floor_usd)                    as floor_usd,
+            round(min(l.landed_usd))              as best_available_now,
+            round(min(l.landed_usd) - f.floor_usd) as above_floor_by,
+            f.note,
+            f.set_at
+          from floors f
+          left join listings l
+            on l.model_key = f.model_key and l.status = 'active'
+          group by f.model_key
+          order by above_floor_by
+
+      flagged_listings:
+        title: Anything carrying a risk or unverified flag
+        sql: |-
+          select
+            value                    as flag,
+            count(*)                 as listings,
+            round(avg(score), 1)     as average_score
+          from listings, json_each(listings.flags)
+          where listings.flags != '[]'
+          group by value
+          order by listings desc
+
+      why_things_were_rejected:
+        title: Rejection reasons — watch UNPARSEABLE
+        sql: |-
+          -- A spike in UNPARSEABLE means the parser needs work on real titles,
+          -- NOT that the filters need loosening.
+          select
+            value    as reason,
+            count(*) as listings
+          from listings, json_each(listings.reject_reasons)
+          where listings.reject_reasons != '[]'
+          group by value
+          order by listings desc
+
+      source_health:
+        title: Which sources are actually producing
+        sql: |-
+          select
+            source,
+            count(*)                                          as total_seen,
+            sum(case when status = 'active' then 1 else 0 end) as active,
+            sum(case when score is not null then 1 else 0 end) as passed_filters,
+            round(avg(score), 1)                              as average_score,
+            max(last_seen)                                    as last_produced
+          from listings
+          group by source
+          order by passed_filters desc
+
+      run_log:
+        title: Run history — did the schedule actually fire?
+        sql: |-
+          select
+            started_at, finished_at,
+            listings_seen, alerts_sent,
+            case digest_sent when 1 then 'yes' else '' end   as digest,
+            case discovery_run when 1 then 'yes' else '' end as discovery,
+            notes
+          from runs
+          order by id desc
+          limit 50
