@@ -19,9 +19,21 @@ candidates:
   feed_url: https://www.pcgamer.com/uk/feeds.xml
   robots_allows: true
   has_prices: true
-  notes: has an RSS feed — can be added as an rss source
+  notes: >-
+    APPROVED, but NOT wired in yet on purpose. Checked the feed live on
+    2026-08-19: it's PC Gamer's entire site output (reviews, esports news,
+    mods, guides), not a deals feed — of the first 40 items, ~7 loosely
+    mentioned a price, and those were editorial articles ("SSD prices are
+    rising"), not purchasable listings with a real deal price and link.
+    Wiring it in the same way as OzBargain would flood the digest with
+    unrelated articles, not deals. Have not found a dedicated PC Gamer deals
+    feed (checked several likely paths, all 404). If you want this source,
+    it needs either (a) a real deals-only feed/tag URL, found by hand rather
+    than guessed, or (b) a much stricter filter than the other RSS sources
+    use, and even then every hit should be treated as a claim to verify
+    against a retailer, not a confirmed price.
   first_seen: '2026-08-17'
-  status: pending
+  status: approved
 - url: https://findmelaptop.com/gaming-laptop-deals
   name: Unbeatable Gaming Laptop Deals | Find Your Ultimate Battle Station
   discovered_from: config seed
@@ -34,9 +46,18 @@ candidates:
   feed_url: null
   robots_allows: true
   has_prices: true
-  notes: prices present but no feed — needs an html source with selectors
+  notes: >-
+    APPROVED per your request, but checked live on 2026-08-19 and this is a
+    DEAD END, not just unverified. discovery's has_prices=true was a false
+    positive: the page's only price string is inside a testimonial quote
+    ("Found a 240Hz beast for under..."), not a real listing. No product
+    cards, no outbound retailer links anywhere on the page — just nav links
+    and a link to /app/, suggesting whatever real content exists is gated
+    inside a mobile app, not on this public page. Left as a disabled stub
+    for the record, but --probe won't find anything here; recommend setting
+    status to 'rejected' unless something changes about the site.
   first_seen: '2026-08-17'
-  status: pending
+  status: approved
 - url: https://laptoppicker.com
   name: Find Your Perfect Gaming Laptop
   discovered_from: config seed
@@ -47,6 +68,12 @@ candidates:
   feed_url: null
   robots_allows: true
   has_prices: false
-  notes: no prices found in the server-rendered HTML; may be JS-rendered
+  notes: >-
+    APPROVED. Added as a disabled sources.html.sites stub. No prices found in
+    the server-rendered HTML — likely JS-rendered (its stated purpose is
+    config validation/comparison rather than deal listings, per the same
+    author's other site, so it may genuinely have little to no deal-priced
+    content even once probed). Try `python run.py --probe laptoppicker`
+    first; if it needs a headless browser, add `render: js` per the README.
   first_seen: '2026-08-17'
-  status: pending
+  status: approved

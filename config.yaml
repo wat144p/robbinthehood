@@ -941,6 +941,41 @@ sources:
           currently the only direct Canadian coverage.
         selectors: {item: "", title: "", price: "", url: ""}
 
+      # -- Approved from discovered_sources.yaml on 2026-08-19. Both still
+      # need a --probe pass before enabling — see discovered_sources.yaml for
+      # the full reasoning on each.
+      findmelaptop:
+        enabled: false
+        base_url: "https://findmelaptop.com"
+        region: US
+        currency: USD
+        paths: ["/gaming-laptop-deals"]
+        seller_name: "findmelaptop.com"
+        notes: >-
+          Checked live 2026-08-19: a dead end, not just unverified. No
+          listing cards or outbound retailer links on the page — the one
+          "price" discovery found was inside a testimonial quote. Real
+          content, if any, appears gated inside a mobile app (/app/). Kept as
+          a disabled stub for the record; --probe won't find anything here.
+        selectors: {item: "", title: "", price: "", url: ""}
+
+      laptoppicker:
+        enabled: false
+        base_url: "https://laptoppicker.com"
+        region: US
+        currency: USD
+        paths: ["/"]
+        seller_name: "laptoppicker.com"
+        notes: >-
+          Approved but unverified, and lowest-confidence of the three: no
+          prices found in the server-rendered HTML (may be JS-rendered), and
+          the same author's sibling site (gaminglaptop.deals) describes this
+          one as a config-validation tool rather than a deals tracker — it may
+          genuinely have little price content even once probed. Try
+          `python run.py --probe laptoppicker` first; add `render: js` if it
+          needs a headless browser.
+        selectors: {item: "", title: "", price: "", url: ""}
+
   # ---------------------------------------------------------------------------
   # Monthly source discovery
   # ---------------------------------------------------------------------------
