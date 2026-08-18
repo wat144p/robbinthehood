@@ -123,6 +123,7 @@ class RejectReason(str, Enum):
     KEYBOARD_LAYOUT = "KEYBOARD_LAYOUT"
     REGION_DISABLED = "REGION_DISABLED"
     UNPARSEABLE = "UNPARSEABLE"
+    ACCESSORY_OR_PART = "ACCESSORY_OR_PART"
 
 
 # ---------------------------------------------------------------------------

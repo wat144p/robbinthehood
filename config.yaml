@@ -550,22 +550,23 @@ sources:
       #
       #   best_buy  CONFIRMED — 425 laptop listings, verified seller match
       #   acer      CONFIRMED — 210 laptop listings, verified seller match
-      #   dell      CONFIRMED — 102 laptop listings, verified seller match
+      #   dell      CONFIRMED — verified seller match previously; a live run
+      #             on 2026-08-19 found 0 for the day's "gaming laptop" query,
+      #             which reads as Dell's inventory not matching that exact
+      #             phrase today rather than the username being wrong — Dell
+      #             tends to title things "Dell G16" etc. without the words
+      #             "gaming laptop". Left in; harmless either way.
       #   bestbuy (no underscore), lenovo, lenovooutlet, msi_usa, asus,
       #   hp_store, hpshopping, hp  — CONFIRMED WRONG, 0 genuine matches
-      #
-      # lenovo_us, msicomputerus, asus_us were never confirmed either way —
-      # the network this was tested from hit DNS instability mid-verification.
-      # Included speculatively: the client-side seller-identity check above
-      # means a wrong guess is now harmless (it contributes zero listings and
-      # gets logged), so there is no downside to trying them.
+      #   lenovo_us, msicomputerus, asus_us — CONFIRMED WRONG as of a live run
+      #   on 2026-08-19: 200/200 results on every marketplace came from a
+      #   different seller and were dropped by the identity check. Removed —
+      #   they were pure wasted request budget, roughly a third of every
+      #   eBay run's storefront pass for zero return.
       sellers:
         - best_buy
         - acer
         - dell
-        - lenovo_us
-        - msicomputerus
-        - asus_us
       # Kept broad on purpose: we have already narrowed to a trusted seller,
       # so the hard filters can do the rest of the discriminating.
       queries:

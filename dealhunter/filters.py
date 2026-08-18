@@ -17,6 +17,8 @@ that makes the machine useless for its purpose:
 
 from __future__ import annotations
 
+import re
+
 from .config import Config
 from .models import (
     KeyboardLayout,
@@ -25,6 +27,67 @@ from .models import (
     ParsedSpecs,
     RejectReason,
 )
+
+# ---------------------------------------------------------------------------
+# Accessories and repair parts, sold under a full laptop's model name
+# ---------------------------------------------------------------------------
+# A search for "Acer Predator Helios Neo 16S AI" also returns a replacement
+# motherboard, a RAM kit, an SSD "compatible with" that laptop — none of which
+# ARE the laptop. Most of these fail UNPARSEABLE on their own (no full spec in
+# a part listing's title). The dangerous case is the one that doesn't: a
+# seller writes "32GB RAM Kit Compatible with [full model + full spec sheet]"
+# for search visibility, and that title recites every field our parser looks
+# for. Without this check, a $40 RAM stick can pass every hard filter and get
+# SCORED as if it were the $1,200 laptop it merely fits — at a price that
+# would trigger a false "amazing deal" alert.
+#
+# Checked independently of whether parsing succeeded, precisely because the
+# case that matters is the one where parsing looks like it worked.
+ACCESSORY_MARKERS: tuple[str, ...] = (
+    # Unambiguous on their own — no complete laptop's own title would ever
+    # contain these, so no "for X" / "replacement" qualifier is required.
+    r"\bmotherboard\b",
+    r"\bmainboard\b",
+    r"\bsodimm\b",
+    r"\benclosure\b",
+    r"\bbackpack\b",
+    r"\blaptop\s+(stand|sleeve|bag)\b",
+    r"\bcooling\s+pad\b",
+    r"\bwarranty\s+extension\b",
+    r"\bwebcam\s+module\b",
+    r"\bthermal\s+paste\b",
+    r"\bcpu\s+cooler\b",
+    r"\bheatsink\b",
+    r"\bersatzteil\b",           # German: "spare/replacement part"
+    r"\bkompatibel\s+(mit|f[uü]r)\b",   # German: "compatible with"
+    r"\b(compatible|passend)\s+(with|f[uü]r)\b",
+    # Ambiguous alone — a genuine laptop listing legitimately says "32GB RAM",
+    # "1TB SSD", "OLED display", "backlit keyboard", "10hr battery life". Only
+    # flag these when paired with a for/replacement/compatible-style qualifier
+    # that marks them as describing a PART rather than the machine itself.
+    r"\b(ram|memory|speicher|arbeitsspeicher)\b[^.,;]{0,30}\b"
+    r"(kit|module|modul|stick|for|f[uü]r|compatible|passend)\b",
+    r"\b(ssd|nvme|festplatte)\b[^.,;]{0,30}\b"
+    r"(upgrade|replacement|for|f[uü]r|compatible|passend)\b",
+    r"\b(screen|display|lcd|bildschirm)\b[^.,;]{0,20}\b"
+    r"(replacement|for|f[uü]r|panel)\b",
+    r"\breplacement\s+(screen|display|lcd|keyboard|battery|fan|speaker|"
+    r"trackpad|hinge|bezel|palmrest)\b",
+    r"\b(keyboard|battery|akku|fan|l[uü]fter|speaker|trackpad|hinge|bezel|"
+    r"palmrest|tastatur)\b[^.,;]{0,20}\b(replacement|for|f[uü]r)\b",
+    r"\b(power\s+(adapter|supply)|charger|netzteil)\b[^.,;]{0,20}\bfor\b",
+    r"\bwifi\s+(card|module)\b[^.,;]{0,20}\b(for|f[uü]r|replacement)\b",
+    r"\bcooling\s+fan\b[^.,;]{0,20}\b(for|replacement)\b",
+)
+
+_ACCESSORY_PATTERN = re.compile("|".join(ACCESSORY_MARKERS), re.IGNORECASE)
+
+
+def looks_like_accessory_or_part(text: str) -> str | None:
+    """The matched marker if `text` looks like an accessory/part listing
+    rather than a complete laptop, or None if it doesn't."""
+    match = _ACCESSORY_PATTERN.search(text)
+    return match.group(0) if match else None
 
 
 def apply_hard_filters(
@@ -44,6 +107,13 @@ def apply_hard_filters(
     """
     limits = config.hard_filters
     reasons: list[RejectReason] = []
+
+    # -- Accessories and parts -------------------------------------------------
+    # Checked BEFORE the spec filters, and independent of parse success — a
+    # RAM stick whose title recites its host laptop's full spec sheet would
+    # otherwise sail through every filter below and get scored as the laptop.
+    if looks_like_accessory_or_part(listing.searchable_text):
+        reasons.append(RejectReason.ACCESSORY_OR_PART)
 
     # -- Region --------------------------------------------------------------
     if not config.region(listing.region).enabled:

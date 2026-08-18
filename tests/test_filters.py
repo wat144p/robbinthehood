@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from dealhunter.evaluate import evaluate
+from dealhunter.filters import looks_like_accessory_or_part
 from dealhunter.models import KeyboardLayout, Region, RejectReason
 from dealhunter.regions import resolve_keyboard_layout
 from tests.fixtures import make_listing
@@ -214,3 +215,101 @@ def test_all_failing_reasons_are_collected(config, rates):
     assert RejectReason.STORAGE_TOO_LOW in result
     assert RejectReason.OVER_BUDGET in result
     assert len(result) >= 3
+
+
+# ---------------------------------------------------------------------------
+# Accessories and repair parts sold under a full laptop's model name
+# ---------------------------------------------------------------------------
+#
+# A search for "Acer Predator Helios Neo 16S AI" also returns a replacement
+# motherboard, a RAM kit, an SSD "compatible with" that laptop. Most fail
+# UNPARSEABLE on their own. The dangerous case is the one that doesn't: a
+# seller writes "RAM Kit Compatible with [full model + full spec sheet]" for
+# search visibility, and that title recites every field the parser looks for
+# — which would otherwise pass every hard filter and get scored as if the
+# $40 RAM stick WERE the $1,200 laptop it merely fits.
+# ---------------------------------------------------------------------------
+
+
+class TestAccessoryDetection:
+    @pytest.mark.parametrize(
+        "title",
+        [
+            # Real titles observed in a live eBay run during this project's
+            # build, before this filter existed.
+            "Acer Predator Helios Neo 16S AI OLED PHN16S-71 Mainboard Laptop "
+            "Reparatur Repair",
+            "M.2 Gen4 SSD passend für Acer Predator Helios Neo 16S AI OLED "
+            "PHN16S-71-90EF",
+            "32GB 16GB RAM Speicher für Acer Predator Helios Neo 16S AI OLED "
+            "PHN16S-71-90EF",
+            "32GB 2x 16GB SODIMM DDR5-5600 RAM Compatible for Acer Predator "
+            "Helios Neo 16S AI",
+            "Refurbished Razer Core X V2 Enclosure, Thunderbolt 5, PCIe 4.0 "
+            "x16, eGPU External Graphics",
+            "Razer Laptop Cooling Pad, Black, Adaptive Smart Cooling",
+            "Razer Laptop Stand Chroma V2, RGB Lighting",
+            "MSI Gaming 1 Year Warranty Extension for MSI G Series Gaming "
+            "Laptops",
+            "ASUS ProArt Backpack, Black, Water Repellent",
+            "Replacement Battery for Acer Predator Helios Neo 16S AI",
+            "New Keyboard for Lenovo Legion Pro 5 16 83LT000MUS",
+        ],
+    )
+    def test_real_accessory_titles_are_caught(self, title):
+        assert looks_like_accessory_or_part(title) is not None
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            # A genuine laptop legitimately says "32GB RAM", "1TB SSD", "OLED
+            # display", "backlit keyboard", "long battery life" — none of
+            # that should trip the accessory detector.
+            "Acer Predator Helios Neo 16S AI 16\" 2560x1600 240Hz OLED Core "
+            "Ultra 9 275HX RTX 5070 Ti 12GB 140W 32GB 1TB SSD",
+            "Lenovo Legion Pro 5 16 83LT000MUS 16\" WQXGA OLED 165Hz Ryzen 7 "
+            "8745HX RTX 5060 8GB @115W 32GB 1TB SSD",
+            "HP OMEN 16 with backlit keyboard, long battery life, 32GB RAM "
+            "1TB SSD RTX 5060",
+            "MSI Vector 16 HX 16\" QHD+ 240Hz IPS Ryzen 9 7945HX RTX 5070 Ti "
+            "12GB 140W TGP 32GB DDR5 1TB NVMe",
+        ],
+    )
+    def test_genuine_laptops_are_not_falsely_caught(self, title):
+        assert looks_like_accessory_or_part(title) is None
+
+    def test_a_part_that_recites_the_full_host_laptops_spec_sheet_is_rejected(
+        self, config, rates
+    ):
+        """The dangerous case: an accessory's title includes every field the
+        parser looks for, priced at a fraction of the real laptop. Without
+        this filter it would pass every spec check and score as a genuine,
+        absurdly-cheap deal."""
+        listing_title = (
+            "32GB RAM Kit Compatible with Acer Predator Helios Neo 16S AI "
+            "OLED 2560x1600 240Hz RTX 5070 Ti 12GB 1TB SSD"
+        )
+        result = reasons(config, rates, title=listing_title, price=45.0)
+        assert RejectReason.ACCESSORY_OR_PART in result
+
+    def test_accessory_check_runs_even_when_parsing_otherwise_succeeds(
+        self, config, rates
+    ):
+        """Confirms the filter is checked independent of parse success, not
+        just as a fallback for titles that fail to parse."""
+        from dealhunter.parsing import parse_listing
+
+        listing_title = (
+            "32GB RAM Kit Compatible with Acer Predator Helios Neo 16S AI "
+            "OLED 2560x1600 240Hz RTX 5070 Ti 12GB 1TB SSD"
+        )
+        specs = parse_listing(listing_title)
+        # The title DOES parse cleanly — that is exactly what makes it
+        # dangerous, and exactly why this cannot rely on UNPARSEABLE alone.
+        assert specs.gpu_model is not None
+        assert specs.resolution_h is not None
+        assert specs.storage_gb is not None
+
+        result = reasons(config, rates, title=listing_title, price=45.0)
+        assert RejectReason.UNPARSEABLE not in result
+        assert RejectReason.ACCESSORY_OR_PART in result
