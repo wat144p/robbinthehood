@@ -668,3 +668,150 @@ class TestHtmlSource:
 
         assert "matched 0 node(s)" in report
         assert "JavaScript-rendered" in report
+
+
+# ---------------------------------------------------------------------------
+# render: js — the headless-browser path for client-rendered sites
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def rendered_html_config(config):
+    """Same as html_config, but the site is marked render: js."""
+    original = config.raw_sources["html"]["sites"]
+    config.raw_sources["html"]["sites"] = {
+        "jsshop": {
+            "enabled": True,
+            "render": "js",
+            "base_url": "https://js.test",
+            "region": "US", "currency": "USD",
+            "paths": ["/laptops"],
+            "seller_name": "JsShop",
+            "condition": "NEW",
+            "selectors": {
+                "item": "article.product-tile",
+                "title": "h2.product-title",
+                "price": "span.price",
+                "url": "a.product-link@href",
+            },
+        },
+    }
+    yield config
+    config.raw_sources["html"]["sites"] = original
+
+
+RENDERED_HTML = """
+<html><body>
+  <article class="product-tile">
+    <h2 class="product-title">ASUS ROG Strix G16 RTX 5070 Ti 32GB 1TB</h2>
+    <span class="price">$1,349.00</span>
+    <a class="product-link" href="/products/rog-strix-g16">View</a>
+  </article>
+</body></html>
+"""
+
+
+class TestRenderJs:
+    def test_render_js_calls_the_headless_fetcher_not_plain_requests(
+        self, rendered_html_config, monkeypatch
+    ):
+        """The whole point of the flag: a plain GET must never be used for a
+        site marked render: js."""
+        calls = []
+
+        def fake_fetch(url, *, user_agent, timeout_seconds, wait_for_selector=None,
+                       extra_wait_seconds=1.5):
+            calls.append({"url": url, "wait_for_selector": wait_for_selector})
+            return RENDERED_HTML
+
+        monkeypatch.setattr(
+            "dealhunter.headless.fetch_rendered_html", fake_fetch
+        )
+        session = FakeFeedSession({"robots.txt": ROBOTS_ALLOW_ALL})
+        listings = HtmlSource(rendered_html_config, session=session,
+                              sleep=no_sleep).fetch()
+
+        assert len(calls) == 1
+        assert calls[0]["url"] == "https://js.test/laptops"
+        # It must never have hit the plain requests session for the page —
+        # only robots.txt, which is always a normal GET.
+        assert not any("js.test/laptops" in c["url"] for c in session.calls)
+        assert len(listings) == 1
+        assert listings[0].sticker_price_local == 1349.00
+
+    def test_the_item_selector_is_passed_as_the_wait_for_selector(
+        self, rendered_html_config, monkeypatch
+    ):
+        """So the headless fetcher waits for the actual product grid to
+        appear, not just for network activity to go quiet — which on a slow
+        product page can still be too early."""
+        captured = {}
+
+        def fake_fetch(url, *, user_agent, timeout_seconds, wait_for_selector=None,
+                       extra_wait_seconds=1.5):
+            captured["wait_for_selector"] = wait_for_selector
+            return RENDERED_HTML
+
+        monkeypatch.setattr("dealhunter.headless.fetch_rendered_html", fake_fetch)
+        session = FakeFeedSession({"robots.txt": ROBOTS_ALLOW_ALL})
+        HtmlSource(rendered_html_config, session=session, sleep=no_sleep).fetch()
+
+        assert captured["wait_for_selector"] == "article.product-tile"
+
+    def test_a_missing_playwright_install_is_reported_not_fatal(
+        self, rendered_html_config, monkeypatch
+    ):
+        """Genuinely exercises the real 'Playwright not installed' path,
+        since this test environment does not have it installed."""
+        session = FakeFeedSession({"robots.txt": ROBOTS_ALLOW_ALL})
+        source = HtmlSource(rendered_html_config, session=session, sleep=no_sleep)
+
+        listings = source.fetch()   # must not raise
+
+        assert listings == []
+        assert any("pip install" in err for err in source.site_errors)
+
+    def test_a_headless_fetch_failure_is_reported_like_any_other_source_error(
+        self, rendered_html_config, monkeypatch
+    ):
+        from dealhunter.headless import HeadlessFetchFailed
+
+        def fake_fetch(*a, **kw):
+            raise HeadlessFetchFailed("page.test did not finish rendering in 30s")
+
+        monkeypatch.setattr("dealhunter.headless.fetch_rendered_html", fake_fetch)
+        session = FakeFeedSession({"robots.txt": ROBOTS_ALLOW_ALL})
+        source = HtmlSource(rendered_html_config, session=session, sleep=no_sleep)
+
+        assert source.fetch() == []
+        assert any("did not finish rendering" in err for err in source.site_errors)
+
+    def test_a_non_rendered_site_never_touches_the_headless_module(
+        self, html_config, monkeypatch
+    ):
+        """The cheap path stays cheap: a site without render: js must not
+        import or call the headless fetcher at all."""
+        def explode(*a, **kw):
+            raise AssertionError("plain HTTP sites must not use the headless fetcher")
+
+        monkeypatch.setattr("dealhunter.headless.fetch_rendered_html", explode)
+        session = FakeFeedSession({
+            "robots.txt": ROBOTS_ALLOW_ALL,
+            "shop.test": FakeResponse(200, SAMPLE_HTML.encode()),
+        })
+        listings = HtmlSource(html_config, session=session, sleep=no_sleep).fetch()
+        assert len(listings) == 2   # unaffected — proves the path was never hit
+
+    def test_probe_reports_which_fetch_mode_a_site_uses(
+        self, rendered_html_config, monkeypatch
+    ):
+        def fake_fetch(url, *, user_agent, timeout_seconds, wait_for_selector=None,
+                       extra_wait_seconds=1.5):
+            return RENDERED_HTML
+
+        monkeypatch.setattr("dealhunter.headless.fetch_rendered_html", fake_fetch)
+        session = FakeFeedSession({"robots.txt": ROBOTS_ALLOW_ALL})
+        report = HtmlSource(rendered_html_config, session=session,
+                            sleep=no_sleep).probe("jsshop")
+
+        assert "headless browser" in report

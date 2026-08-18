@@ -198,6 +198,53 @@ Fill in `selectors` in `config.yaml` until it looks right, then set
 `enabled: true`. Geizhals is the highest-value one — it aggregates most German
 retailers in a single query.
 
+### Sites that need a headless browser
+
+Some sites (Newegg, gaminglaptop.deals, bestlaptop.deals — confirmed live)
+return HTTP 200 with an empty page shell, because their listings are built by
+JavaScript running in the browser after the page loads. A plain
+`requests.get()` never sees that content, however polite the User-Agent —
+there is no header that fixes it, because nothing is being blocked.
+
+The fix is a **headless browser**: a real browser engine (Chromium — the same
+one behind Chrome and Edge) with no visible window, driven by code. It loads
+the page, runs the JavaScript, waits for the real content to appear, and hands
+back the fully-rendered HTML. It is slower and heavier than a plain request,
+which is why it's opt-in per site rather than the default.
+
+```bash
+python -m pip install -r requirements-headless.txt
+playwright install chromium    # downloads the actual browser, ~150-300 MB, once
+```
+
+Mark the site with `render: js` in `config.yaml`:
+
+```yaml
+newegg:
+  enabled: false
+  render: js
+  base_url: "https://www.newegg.com"
+  ...
+```
+
+Then probe it exactly as before — `--probe` uses the headless path
+automatically for any site with `render: js` set:
+
+```bash
+python run.py --probe newegg
+```
+
+If Playwright or its browser binary isn't installed, `--probe` and a live run
+both fail with the exact `pip install` / `playwright install` command needed,
+rather than a stack trace.
+
+**This will not help every blocked site.** Currys and Geizhals return HTTP 403
+— a bot wall, not a rendering problem. A real browser fingerprint sometimes
+gets past a simple check, but serious bot protection (Cloudflare, Akamai,
+PerimeterX) explicitly detects headless/automation signals and blocks those
+too. Worth trying `render: js` on them; not guaranteed to work, and not worth
+an arms race for a personal tool if it doesn't.
+
 ### Adding a new source
 
 One class implementing `Source.fetch()` in `dealhunter/sources/`, one block

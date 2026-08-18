@@ -1,0 +1,16 @@
+# Optional — only needed if you enable a site with `render: js` in
+# config.yaml (a site whose listings are built client-side with JavaScript,
+# where a plain HTTP GET returns an empty page shell).
+#
+# NOT installed by default: it pulls in a full Chromium binary via a second
+# command, which is unnecessary weight for the GitHub Actions runner and the
+# Docker image if you never use it.
+#
+#   pip install -r requirements-headless.txt
+#   playwright install chromium
+#
+# The second command downloads the actual browser (~150-300 MB) into a local
+# cache. Run it once per machine (or once per CI image, if you enable this in
+# the GitHub Actions workflow — see the note in .github/workflows/hunt.yml).
+-r requirements.txt
+playwright==1.47.0

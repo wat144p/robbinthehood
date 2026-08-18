@@ -783,7 +783,13 @@ sources:
     enabled: true
     sites:
       gaminglaptop_deals:
-        enabled: false
+        # Confirmed live 2026-08-18: robots.txt allows crawling, and a plain
+        # GET returns HTTP 200 with ~165 KB — but it is a React SPA (Tailwind
+        # app shell, ZERO price strings in the response body). `render: js`
+        # is what actually fixes this; a bare requests.get() never will,
+        # however polite the User-Agent.
+        enabled: false           # still needs selectors — see below
+        render: js
         base_url: "https://gaminglaptop.deals"
         region: US
         currency: USD
@@ -791,26 +797,29 @@ sources:
         seller_name: "gaminglaptop.deals"
         notes: >-
           Jarrod's Tech tracker, 7 regions, real price history and per-config
-          buy/avoid guidance. robots.txt allows crawling, but the server 403s
-          non-browser clients — NEEDS A HEADLESS BROWSER. Their free price-drop
-          email alerts are a zero-engineering alternative worth setting up by
-          hand for the Helios Neo 16S AI.
+          buy/avoid guidance. Exposes a JSON API (/api/gpus works) that would
+          beat scraping outright if you find the real deals endpoint via
+          browser devtools -> Network tab -> XHR — about 20 minutes of work,
+          worth doing before finishing this scrape. Their free price-drop
+          email alerts are a zero-engineering alternative for the Helios Neo
+          16S AI in the meantime.
         selectors:
-          item: ""      # unknown — fill in after a headless fetch
-          title: ""
+          item: ""      # run: python run.py --probe gaminglaptop_deals
+          title: ""     # (needs requirements-headless.txt installed first)
           price: ""
           url: ""
 
       bestlaptop_deals:
+        # Confirmed live: same story as gaminglaptop.deals. Server HTML has
+        # only the filter UI; deal cards are JavaScript-rendered.
         enabled: false
+        render: js
         base_url: "https://bestlaptop.deals"
         region: US
         currency: USD
         paths: ["/recommendations/Crazy-Deals"]
         seller_name: "bestlaptop.deals"
-        notes: >-
-          JustJoshTech. Deal cards are JavaScript-rendered; the server HTML
-          contains only the filter UI. NEEDS A HEADLESS BROWSER.
+        notes: "JustJoshTech. Needs selectors — probe with a headless fetch."
         selectors:
           item: ""
           title: ""
@@ -868,18 +877,26 @@ sources:
           point. pricing.py handles it; without that the pence are dropped.
 
       currys:
-        enabled: false          # HTTP 403 to non-browser clients
+        # HTTP 403 to non-browser clients. This is a bot wall, not confirmed
+        # to be about JavaScript rendering, so `render: js` is NOT set here —
+        # a real browser fingerprint sometimes gets past a simple User-Agent
+        # check, but serious bot walls (Cloudflare, Akamai, PerimeterX)
+        # explicitly detect headless/automation signals and block those too.
+        # Worth trying `render: js` yourself; not guaranteed to work.
+        enabled: false
         base_url: "https://www.currys.co.uk"
         region: GB
         currency: GBP
         paths: ["/gaming/laptops"]
         seller_name: "Currys"
         condition: NEW
-        notes: "Bot-walled (403). Needs a headless browser."
+        notes: "Bot-walled (403). A headless browser MIGHT help; unverified."
         selectors: {item: "", title: "", price: "", url: ""}
 
       geizhals:
-        enabled: false          # HTTP 403
+        # Same caveat as Currys: 403 bot wall, not confirmed to be a
+        # JavaScript-rendering problem.
+        enabled: false
         base_url: "https://geizhals.de"
         region: DE
         currency: EUR
@@ -888,20 +905,25 @@ sources:
         notes: >-
           The best price-comparison engine in Europe — aggregates most German
           retailers in one query, so it is worth more than any single shop and
-          is the highest-value target here. Currently 403s non-browser clients.
-          Remember the QWERTZ filter kills most German stock anyway; only
-          listings explicitly stating a US/UK layout survive.
+          is the highest-value target here. Currently 403s non-browser clients;
+          a headless browser might help, unverified. Remember the QWERTZ
+          filter kills most German stock anyway; only listings explicitly
+          stating a US/UK layout survive.
         selectors: {item: "", title: "", price: "", url: ""}
 
       newegg:
-        enabled: false          # 200 OK but JavaScript-rendered
+        # Confirmed live: HTTP 200, but the listing grid is built client-side.
+        # render: js fixes this specifically — Newegg is not bot-walled, it
+        # genuinely just has nothing in the raw HTML to scrape.
+        enabled: false           # still needs selectors — probe once rendered
+        render: js
         base_url: "https://www.newegg.com"
         region: US
         currency: USD
         paths: ["/Gaming-Laptops/SubCategory/ID-3365"]
         seller_name: "Newegg"
         condition: NEW
-        notes: "Returns 200 but the listings are client-rendered. Needs headless."
+        notes: "200 OK, client-rendered listings. render: js handles it."
         selectors: {item: "", title: "", price: "", url: ""}
 
       canada_computers:

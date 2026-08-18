@@ -79,6 +79,12 @@ class SiteConfig:
     #: chargers, cooling pads and eGPU enclosures. Without this filter those
     #: all arrive, fail to parse, and bury the real rejections in noise.
     keyword_pattern: str | None = None
+    #: True for a site that builds its listings client-side with JavaScript,
+    #: where a plain GET returns an empty page shell (confirmed live for
+    #: Newegg, gaminglaptop.deals and bestlaptop.deals — 200 OK, zero prices
+    #: in the response body). Fetched through a headless browser instead; see
+    #: dealhunter/headless.py for what that means and why it is the last resort.
+    render_js: bool = False
 
     @classmethod
     def from_dict(cls, name: str, block: dict) -> "SiteConfig":
@@ -95,6 +101,7 @@ class SiteConfig:
             is_major_retailer=bool(block.get("is_major_retailer", False)),
             notes=block.get("notes", ""),
             keyword_pattern=block.get("keyword_pattern"),
+            render_js=bool(block.get("render", "") == "js"),
         )
 
 
@@ -170,12 +177,15 @@ class HtmlSource(Source):
             if published_delay and published_delay > self.policy.request_delay_seconds:
                 self.budget._sleep(published_delay)
 
-            html = self._get_html(url)
+            html = self._get_html(url, site)
             listings.extend(self._parse(html, site, url))
 
         return listings
 
-    def _get_html(self, url: str) -> str:
+    def _get_html(self, url: str, site: SiteConfig) -> str:
+        if site.render_js:
+            return self._get_rendered_html(url, site)
+
         self.budget.wait_turn()
         self.requests_made += 1
 
@@ -188,7 +198,8 @@ class HtmlSource(Source):
         if response.status_code in (401, 403, 429):
             raise SourceBlocked(
                 f"HTTP {response.status_code} — the site is refusing automated "
-                f"clients. It may need a headless browser."
+                f"clients. It may need a headless browser (set render: js in "
+                f"config.yaml for this site)."
             )
         if response.status_code != 200:
             raise SourceError(f"HTTP {response.status_code} for {url}")
@@ -201,6 +212,36 @@ class HtmlSource(Source):
             )
 
         return text
+
+    def _get_rendered_html(self, url: str, site: SiteConfig) -> str:
+        """Fetch a JavaScript-rendered page through a headless browser.
+
+        Deliberately isolated behind this one call site: nothing else in this
+        module needs to know the difference between a plain GET and a
+        rendered page, they both just produce HTML for `_parse` to read.
+        """
+        from ..headless import (
+            HeadlessBrowserUnavailable,
+            HeadlessFetchFailed,
+            fetch_rendered_html,
+        )
+
+        self.budget.wait_turn()
+        self.requests_made += 1
+
+        try:
+            return fetch_rendered_html(
+                url,
+                user_agent=self.policy.user_agent,
+                timeout_seconds=self.policy.timeout_seconds,
+                wait_for_selector=site.selectors.get("item"),
+            )
+        except HeadlessBrowserUnavailable as exc:
+            # A setup problem, not a ban — report it plainly rather than
+            # disabling the site (SourceError, not SourceBlocked).
+            raise SourceError(str(exc)) from exc
+        except HeadlessFetchFailed as exc:
+            raise SourceError(str(exc)) from exc
 
     # -- parsing -----------------------------------------------------------
 
@@ -282,13 +323,14 @@ class HtmlSource(Source):
             return f"No site named {site_name!r} in sources.html.sites"
 
         url = urljoin(site.base_url + "/", site.paths[0].lstrip("/"))
-        lines = [f"Probing {site.name}: {url}"]
+        mode = "headless browser (render: js)" if site.render_js else "plain HTTP GET"
+        lines = [f"Probing {site.name}: {url}", f"  fetch mode: {mode}"]
 
         if not self.robots.is_allowed(url):
             return "\n".join(lines + ["  robots.txt DISALLOWS this path."])
 
         try:
-            html = self._get_html(url)
+            html = self._get_html(url, site)
         except SourceBlocked as exc:
             return "\n".join(lines + [f"  BLOCKED: {exc}"])
         except Exception as exc:  # noqa: BLE001
@@ -312,10 +354,21 @@ class HtmlSource(Source):
         lines.append(f"  item selector matched {len(nodes)} node(s)")
 
         if not nodes:
-            lines.append(
-                "  -> Either the markup changed or the page is JavaScript-rendered. "
-                "Check the page source (not the inspector, which shows post-JS DOM)."
-            )
+            if site.render_js:
+                lines.append(
+                    "  -> Rendered through a headless browser, but the selector "
+                    "still matched nothing. The markup probably changed, or the "
+                    "selector was written against the wrong element — inspect "
+                    "the LIVE rendered DOM (browser devtools, not view-source) "
+                    "rather than the static page source."
+                )
+            else:
+                lines.append(
+                    "  -> Either the markup changed, or the page is "
+                    "JavaScript-rendered — view-source and look for the "
+                    "product data in the raw HTML. If it is not there, add "
+                    "'render: js' for this site in config.yaml and re-probe."
+                )
             return "\n".join(lines)
 
         for key in ("title", "price", "url", "description"):
