@@ -38,6 +38,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
+from urllib.parse import quote
 
 from ..config import Config
 from ..fx import FxRates
@@ -62,12 +63,22 @@ ENDPOINTS = {
     "production": {
         "oauth": "https://api.ebay.com/identity/v1/oauth2/token",
         "search": "https://api.ebay.com/buy/browse/v1/item_summary/search",
+        "item": "https://api.ebay.com/buy/browse/v1/item",
     },
     "sandbox": {
         "oauth": "https://api.sandbox.ebay.com/identity/v1/oauth2/token",
         "search": "https://api.sandbox.ebay.com/buy/browse/v1/item_summary/search",
+        "item": "https://api.sandbox.ebay.com/buy/browse/v1/item",
     },
 }
+
+# eBay's classic listing title limit. Verified live on 2026-08-18: a majority
+# of listings that failed to parse turned out to be genuine, in-budget laptops
+# whose title was simply cut off mid-word at this length by the Browse API's
+# item_summary/search endpoint — "...Intel Core..." with the GPU, RAM and
+# storage never reached. The full spec is usually still present as structured
+# "item specifics" on the Item resource, fetched by _fetch_full_item below.
+TITLE_TRUNCATION_LENGTH = 80
 
 # The only scope the Browse API needs for public search.
 OAUTH_SCOPE = "https://api.ebay.com/oauth/api_scope"
@@ -594,7 +605,72 @@ class EbaySource(Source):
         if item.get("itemGroupType"):
             listing.source_flags.append(Flag.MULTI_VARIATION_LISTING)
 
+        # eBay truncates `title` at 80 characters for a lot of listings,
+        # frequently mid-word, right before the spec that would let the
+        # parser extract a GPU/RAM/storage figure. Pull the untruncated
+        # title and item specifics from the full Item resource and fold them
+        # into the description, where the ordinary text parser picks them up
+        # — no eBay-specific field mapping needed, it reuses the same
+        # GPU/RAM/storage patterns every other source already uses.
+        if self.settings.get("enrich_truncated_titles", True) and _looks_truncated(
+            listing.title
+        ):
+            extra = self._fetch_full_item_text(listing.listing_id, marketplace)
+            if extra:
+                listing.description = f"{listing.description} {extra}".strip()
+
         return listing
+
+    def _fetch_full_item_text(self, item_id: str, marketplace: str) -> str:
+        """The full title plus item specifics for one item, flattened to text.
+
+        One extra request per truncated title, gated by the same budget as
+        every other call. A failure here is non-fatal — the listing just
+        keeps whatever the (truncated) search-result title alone parsed to,
+        exactly as before this method existed.
+        """
+        if self.budget.exhausted:
+            return ""
+
+        try:
+            token = self._get_token()
+        except (SourceBlocked, SourceAuthError):
+            raise
+        except SourceError:
+            return ""
+
+        self.budget.wait_turn()
+        self.requests_made += 1
+
+        try:
+            response = self.session.get(
+                f"{self.endpoints['item']}/{quote(item_id, safe='')}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-EBAY-C-MARKETPLACE-ID": marketplace,
+                    "User-Agent": self.policy.user_agent,
+                },
+                timeout=self.policy.timeout_seconds,
+            )
+        except Exception as exc:  # noqa: BLE001 — enrichment is best-effort
+            log.debug("Could not fetch full item detail for %s: %s", item_id, exc)
+            return ""
+
+        if response.status_code != 200:
+            return ""
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return ""
+
+        parts = [payload.get("title") or ""]
+        for aspect in payload.get("localizedAspects") or []:
+            name, value = aspect.get("name"), aspect.get("value")
+            if name and value:
+                parts.append(f"{name}: {value}")
+
+        return ". ".join(p for p in parts if p)
 
     def _shipping_from(self, item: dict, currency: str) -> tuple[float, bool]:
         """Domestic shipping cost, and whether it ships at all.
@@ -687,6 +763,15 @@ class EbaySource(Source):
 # ---------------------------------------------------------------------------
 # Small coercion helpers — eBay returns numbers as strings, inconsistently
 # ---------------------------------------------------------------------------
+
+
+def _looks_truncated(title: str) -> bool:
+    """True when eBay has cut a title off mid-listing rather than it simply
+    being short. Real eBay title truncation always ends in a literal "..."
+    at (or very near) the 80-character classic eBay title limit — a short
+    title that happens to end in three dots on its own would be a wild
+    coincidence, not something worth guarding against separately."""
+    return title.endswith("...") and len(title) >= TITLE_TRUNCATION_LENGTH - 2
 
 
 def _int_or_none(value: Any) -> int | None:

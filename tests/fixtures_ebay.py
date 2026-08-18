@@ -74,6 +74,17 @@ def search_response(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {"total": len(items), "limit": 100, "offset": 0, "itemSummaries": items}
 
 
+def item_detail(title: str, aspects: dict[str, str] | None = None) -> dict:
+    """A `/buy/browse/v1/item/{id}` response: the full title plus item
+    specifics, which is what a truncated search-result title is enriched from."""
+    return {
+        "title": title,
+        "localizedAspects": [
+            {"name": name, "value": value} for name, value in (aspects or {}).items()
+        ],
+    }
+
+
 OAUTH_RESPONSE = {
     "access_token": "v^1.1#i^1#fake-application-token",
     "expires_in": 7200,
@@ -108,10 +119,16 @@ class FakeSession:
         responses: dict[str, Any] | None = None,
         search_status: int = 200,
         oauth_status: int = 200,
+        item_responses: dict[str, Any] | None = None,
+        item_status: int = 200,
     ):
         self.responses = responses or {}
         self.search_status = search_status
         self.oauth_status = oauth_status
+        # itemId (URL-decoded) -> Item resource payload, for the full-item
+        # detail endpoint used to enrich eBay's truncated titles.
+        self.item_responses = item_responses or {}
+        self.item_status = item_status
         self.calls: list[dict[str, Any]] = []
         self.headers: dict[str, str] = {}
 
@@ -120,11 +137,25 @@ class FakeSession:
         return FakeResponse(self.oauth_status, OAUTH_RESPONSE)
 
     def get(self, url, params=None, headers=None, timeout=None):
+        from urllib.parse import unquote
+
         headers = headers or {}
         params = params or {}
         self.calls.append(
             {"method": "GET", "url": url, "params": params, "headers": headers}
         )
+
+        # The full-item detail endpoint: .../buy/browse/v1/item/{item_id}
+        # (distinct from .../item_summary/search, which "item" alone would
+        # also match, so item_summary is excluded explicitly).
+        if "/item/" in url and "item_summary" not in url:
+            if self.item_status != 200:
+                return FakeResponse(self.item_status, {})
+            item_id = unquote(url.rsplit("/item/", 1)[-1])
+            payload = self.item_responses.get(item_id)
+            if payload is None:
+                return FakeResponse(404, {"errors": [{"message": "not found"}]})
+            return FakeResponse(200, payload)
 
         if self.search_status != 200:
             return FakeResponse(self.search_status, {})

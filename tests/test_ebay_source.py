@@ -13,7 +13,7 @@ import pytest
 from dealhunter.models import Condition, Region
 from dealhunter.sources.base import SourceAuthError, SourceBlocked, run_sources
 from dealhunter.sources.ebay import EbaySource
-from tests.fixtures_ebay import FakeSession, item, search_response
+from tests.fixtures_ebay import FakeSession, item, item_detail, search_response
 
 HELIOS = (
     "Acer Predator Helios Neo 16S AI 16\" 2560x1600 240Hz OLED Core Ultra 9 275HX "
@@ -579,3 +579,175 @@ class TestStorefronts:
         })
         listings = make_source(storefront_config, rates, session).fetch()
         assert [l.listing_id for l in listings].count("v1|dup|0") == 1
+
+
+# ---------------------------------------------------------------------------
+# Truncated-title enrichment
+# ---------------------------------------------------------------------------
+
+
+TRUNCATED_HP = (
+    "HP - Victus 15.6\" 144Hz Full HD Gaming Laptop - Intel Core i5 13420H (2023) -..."
+)
+assert len(TRUNCATED_HP) >= 79 and TRUNCATED_HP.endswith("...")
+
+
+class TestTruncatedTitleEnrichment:
+    """eBay cuts a real, meaningful share of listing titles off at 80
+    characters, mid-word, before the spec that would otherwise have parsed --
+    verified live on 2026-08-18 against roughly 60% of that day's otherwise-
+    unparseable listings. This reuses the ordinary text parser rather than
+    mapping eBay's aspect names to spec fields directly, by folding the full
+    title plus item specifics into the listing's description."""
+
+    def test_a_truncated_title_is_enriched_from_the_full_item(
+        self, single_query_config, rates
+    ):
+        session = FakeSession(
+            {"EBAY_US": search_response([
+                item(item_id="v1|198009519465|0", title=TRUNCATED_HP, postal="19801")
+            ])},
+            item_responses={
+                "v1|198009519465|0": item_detail(
+                    title=TRUNCATED_HP + " NVIDIA GeForce RTX 5060, 16GB RAM, 512GB SSD",
+                    aspects={
+                        "Graphics Processing Type": "NVIDIA GeForce RTX 5060",
+                        "RAM Size": "16 GB",
+                        "SSD Capacity": "512 GB",
+                    },
+                ),
+            },
+        )
+        listings = make_source(single_query_config, rates, session).fetch()
+        listing = next(l for l in listings if l.listing_id == "v1|198009519465|0")
+
+        # searchable_text lowercases everything, by design (the parser is
+        # case-insensitive).
+        text = listing.searchable_text
+        assert "rtx 5060" in text
+        assert "16 gb" in text
+        assert "512 gb" in text
+
+    def test_this_actually_rescues_a_listing_from_unparseable(
+        self, single_query_config, rates, config
+    ):
+        """The point of the whole feature: a listing that would otherwise be
+        thrown away for having no discoverable spec now parses correctly."""
+        from dealhunter.evaluate import evaluate
+        from dealhunter.fx import static_rates
+        from dealhunter.models import RejectReason
+
+        session = FakeSession(
+            {"EBAY_US": search_response([
+                item(item_id="v1|resc|0", title=TRUNCATED_HP, postal="19801")
+            ])},
+            item_responses={
+                "v1|resc|0": item_detail(
+                    title=TRUNCATED_HP + " full spec",
+                    aspects={
+                        "Graphics Processing Type": "NVIDIA GeForce RTX 5060",
+                        "RAM Size": "16 GB",
+                        "SSD Capacity": "1 TB",
+                        "Screen Resolution": "2560x1600",
+                    },
+                ),
+            },
+        )
+        listings = make_source(single_query_config, rates, session).fetch()
+        listing = next(l for l in listings if l.listing_id == "v1|resc|0")
+
+        rates_fixed = static_rates({"CAD": 0.73, "GBP": 1.27, "EUR": 1.09,
+                                    "SEK": 0.095, "AUD": 0.66})
+        evaluated = evaluate(listing, config, rates_fixed)
+        assert RejectReason.UNPARSEABLE not in evaluated.reject_reasons
+
+    def test_a_non_truncated_title_makes_no_extra_request(
+        self, single_query_config, rates
+    ):
+        session = FakeSession({
+            "EBAY_US": search_response([item(item_id="v1|full|0", title="Short Title")])
+        })
+        make_source(single_query_config, rates, session).fetch()
+
+        assert not any("/item/" in c["url"] and "item_summary" not in c["url"]
+                       for c in session.calls)
+
+    def test_a_failed_enrichment_is_non_fatal(self, single_query_config, rates):
+        """The listing keeps whatever the truncated title alone parsed to --
+        worse than enriched, but no worse than before this feature existed."""
+        session = FakeSession(
+            {"EBAY_US": search_response([
+                item(item_id="v1|fail|0", title=TRUNCATED_HP, postal="19801")
+            ])},
+            item_status=500,
+        )
+        listings = make_source(single_query_config, rates, session).fetch()
+        listing = next(l for l in listings if l.listing_id == "v1|fail|0")
+        assert listing.title == TRUNCATED_HP   # unchanged, nothing crashed
+
+    def test_a_missing_item_id_in_the_fixture_returns_404_gracefully(
+        self, single_query_config, rates
+    ):
+        session = FakeSession({
+            "EBAY_US": search_response([
+                item(item_id="v1|nodetail|0", title=TRUNCATED_HP, postal="19801")
+            ])
+        })  # no item_responses entry at all -> 404
+        listings = make_source(single_query_config, rates, session).fetch()
+        listing = next(l for l in listings if l.listing_id == "v1|nodetail|0")
+        assert listing.title == TRUNCATED_HP
+
+    def test_disabling_enrichment_skips_the_extra_request(
+        self, single_query_config, rates
+    ):
+        single_query_config.raw_sources["ebay"]["enrich_truncated_titles"] = False
+        try:
+            session = FakeSession(
+                {"EBAY_US": search_response([
+                    item(item_id="v1|off|0", title=TRUNCATED_HP, postal="19801")
+                ])},
+                item_responses={"v1|off|0": item_detail(title="does not matter")},
+            )
+            make_source(single_query_config, rates, session).fetch()
+            assert not any("/item/" in c["url"] and "item_summary" not in c["url"]
+                           for c in session.calls)
+        finally:
+            single_query_config.raw_sources["ebay"].pop("enrich_truncated_titles", None)
+
+    def test_item_id_with_pipes_is_url_encoded(self, single_query_config, rates):
+        """eBay item IDs contain literal pipe characters (e.g. v1|123|0),
+        which must be percent-encoded as a URL path segment."""
+        session = FakeSession(
+            {"EBAY_US": search_response([
+                item(item_id="v1|99999|0", title=TRUNCATED_HP, postal="19801")
+            ])},
+            item_responses={"v1|99999|0": item_detail(title="fine")},
+        )
+        make_source(single_query_config, rates, session).fetch()
+
+        item_call = next(c for c in session.calls
+                         if "/item/" in c["url"] and "item_summary" not in c["url"])
+        assert "|" not in item_call["url"]       # encoded, not raw
+        assert "%7C" in item_call["url"]
+
+    def test_a_short_title_ending_in_dots_is_not_treated_as_truncated(
+        self, single_query_config, rates
+    ):
+        from dealhunter.sources.ebay import _looks_truncated
+
+        assert _looks_truncated("Gaming Laptop...") is False
+        assert _looks_truncated(TRUNCATED_HP) is True
+
+    def test_enrichment_respects_the_request_budget(self, single_query_config, rates):
+        single_query_config.raw_sources["http"]["max_requests_per_run"] = 1
+        try:
+            session = FakeSession(
+                {"EBAY_US": search_response([
+                    item(item_id="v1|budget|0", title=TRUNCATED_HP, postal="19801")
+                ])},
+                item_responses={"v1|budget|0": item_detail(title="should not be fetched")},
+            )
+            # Must not raise even with the budget exhausted immediately.
+            make_source(single_query_config, rates, session).fetch()
+        finally:
+            single_query_config.raw_sources["http"]["max_requests_per_run"] = 200

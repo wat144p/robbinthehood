@@ -500,6 +500,15 @@ sources:
     ceiling_margin: 1.05         # search slightly above budget; the landed-cost
                                  # filter does the real rejecting
 
+    # eBay truncates listing titles at 80 characters for a meaningful share of
+    # results — verified live 2026-08-18, roughly 60% of otherwise-unparseable
+    # listings turned out to be genuine laptops cut off mid-word right before
+    # the GPU/RAM/storage spec. When true, a truncated title triggers one
+    # extra request per listing to pull the full title + item specifics.
+    # Bounded by the same max_requests_per_run as everything else. Set to
+    # false to trade completeness for fewer requests.
+    enrich_truncated_titles: true
+
     # eBay tags these manufacturer outlets as plain "seller refurbished" even
     # though they carry real manufacturer warranties. Matched as substrings
     # against the seller username.
@@ -545,17 +554,18 @@ sources:
       #   bestbuy (no underscore), lenovo, lenovooutlet, msi_usa, asus,
       #   hp_store, hpshopping, hp  — CONFIRMED WRONG, 0 genuine matches
       #
-      # lenovo_us, msicomputerus, msiusa1, asus_us were inconclusive: the
-      # network this was tested from hit DNS instability and possible rate
-      # limiting mid-verification, so their true status is unknown rather
-      # than confirmed either way. Left out for now; the client-side check
-      # makes it safe to add them back speculatively if you want more
-      # coverage — a wrong guess just produces zero listings, it can no
-      # longer produce wrong ones.
+      # lenovo_us, msicomputerus, asus_us were never confirmed either way —
+      # the network this was tested from hit DNS instability mid-verification.
+      # Included speculatively: the client-side seller-identity check above
+      # means a wrong guess is now harmless (it contributes zero listings and
+      # gets logged), so there is no downside to trying them.
       sellers:
         - best_buy
         - acer
         - dell
+        - lenovo_us
+        - msicomputerus
+        - asus_us
       # Kept broad on purpose: we have already narrowed to a trusted seller,
       # so the hard filters can do the rest of the discriminating.
       queries:
