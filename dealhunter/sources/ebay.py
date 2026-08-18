@@ -278,13 +278,36 @@ class EbaySource(Source):
                         )
                         continue
 
-                    # Count what the storefront QUERY returned, not what
-                    # survived dedup: a storefront whose whole inventory the
-                    # keyword pass already found is working perfectly, and
-                    # must not be reported as a mistyped username.
-                    self.storefront_hits[seller] += len(items)
+                    # eBay's `sellers:{name}` filter has been observed to be
+                    # SILENTLY IGNORED for a username it doesn't recognise,
+                    # returning the entire unfiltered category instead of an
+                    # error or an empty result (confirmed live 2026-08-18: a
+                    # deliberately fake seller name returned the same result
+                    # set, with unrelated sellers, as several real-looking
+                    # guesses). Trusting the filter blindly would let a wrong
+                    # storefront name silently attribute a random seller's
+                    # stock to e.g. "Best Buy" and hand it the major-retailer
+                    # trust bonus. So every item is checked against the seller
+                    # we actually asked for, and anything else is dropped.
+                    genuine = [
+                        it for it in items
+                        if (it.get("seller") or {}).get("username", "").lower()
+                        == seller.lower()
+                    ]
+                    if len(genuine) != len(items):
+                        log.warning(
+                            "eBay storefront %r: %d of %d results on %s were from "
+                            "a different seller and were dropped — the filter was "
+                            "likely ignored because the username is wrong.",
+                            seller, len(items) - len(genuine), len(items), marketplace,
+                        )
 
-                    for item in items:
+                    # Count only genuine matches. A storefront whose whole
+                    # inventory the keyword pass already found is working
+                    # perfectly and must not be reported as mistyped.
+                    self.storefront_hits[seller] += len(genuine)
+
+                    for item in genuine:
                         listing = self._to_listing(item, marketplace)
                         if listing is None or listing.listing_id in seen_ids:
                             continue
@@ -387,6 +410,12 @@ class EbaySource(Source):
                 "limit": limit,
                 "offset": page * limit,
                 "filter": self._build_filter(region, currency, country, sellers),
+                # "Laptops & Netbooks". Verified live on 2026-08-18: without
+                # this, a plain title search for a model name pulls in
+                # compatible parts sold under that title ("SSD passend für
+                # Acer Predator Helios Neo 16S AI") — accessories, not
+                # laptops. With it, the same query returns only laptops.
+                "category_ids": "177",
                 "sort": "price",
             }
             headers = {

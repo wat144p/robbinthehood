@@ -504,19 +504,63 @@ class TestStorefronts:
     def test_a_storefront_with_results_is_not_warned_about(
         self, storefront_config, rates, caplog
     ):
+        """Each storefront must get its OWN genuine result to avoid the
+        warning — a fixture that only ever returns "bestbuy"-seller items
+        would previously have let a mistyped "acer" pass silently, because
+        the old code counted any item as a hit regardless of whose it was.
+        That is exactly the bug the seller-identity check above closes."""
         import logging
 
         session = FakeSession({
-            "EBAY_US": search_response([item(item_id="v1|s|0", seller="bestbuy")])
+            "EBAY_US": search_response([
+                item(item_id="v1|bb|0", seller="bestbuy"),
+                item(item_id="v1|ac|0", seller="acer"),
+            ])
         })
         source = make_source(storefront_config, rates, session)
         with caplog.at_level(logging.WARNING):
             source.fetch()
 
         assert source.storefront_hits["bestbuy"] > 0
+        assert source.storefront_hits["acer"] > 0
         assert not [
             r for r in caplog.records if "probably wrong" in r.getMessage()
         ]
+
+    def test_an_item_from_the_wrong_seller_is_dropped_not_attributed(
+        self, storefront_config, rates, caplog
+    ):
+        """eBay's sellers filter has been observed live to be silently
+        ignored for an unrecognised name, returning the whole unfiltered
+        category instead of an error. Trusting it blindly would let a wrong
+        storefront name launder a random seller's stock as e.g. "Best Buy"
+        and hand it the major-retailer trust bonus, so every item is checked
+        against the seller actually requested."""
+        import logging
+
+        session = FakeSession({
+            # Every query — including both storefront passes — gets back an
+            # item from a THIRD, unrelated seller. This is what the silent
+            # filter-ignore bug looks like in practice.
+            "EBAY_US": search_response([
+                item(item_id="v1|other|0", seller="some_random_reseller")
+            ])
+        })
+        source = make_source(storefront_config, rates, session)
+        with caplog.at_level(logging.WARNING):
+            listings = source.fetch()
+
+        # The mismatched item must not be attributed to either storefront...
+        assert source.storefront_hits["bestbuy"] == 0
+        assert source.storefront_hits["acer"] == 0
+        assert not any(l.seller_name == "some_random_reseller" and
+                       l.is_major_retailer for l in listings)
+
+        # ...and both should be reported as not actually found.
+        warnings = [r.getMessage() for r in caplog.records]
+        assert any("dropped" in w and "different seller" in w for w in warnings)
+        assert any("bestbuy" in w and "probably wrong" in w for w in warnings)
+        assert any("acer" in w and "probably wrong" in w for w in warnings)
 
     def test_disabling_storefronts_skips_the_pass(self, storefront_config, rates):
         storefront_config.raw_sources["ebay"]["storefronts"]["enabled"] = False

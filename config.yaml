@@ -529,12 +529,33 @@ sources:
     # ebay.com/str/<name> in a browser and correct it here.
     storefronts:
       enabled: true
+      # Verified live against the Browse API on 2026-08-18 with real
+      # credentials — see the note above about the sellers filter being
+      # silently ignored for a name eBay doesn't recognise. Verification
+      # method: query the seller filter, then check the ACTUAL seller on the
+      # returned items rather than trusting the filter or the total count
+      # (both can lie). The code in ebay.py now does this same check on every
+      # request, so a config entry that's wrong is self-correcting: it just
+      # contributes zero listings and gets logged, rather than silently
+      # laundering someone else's stock as "Best Buy".
+      #
+      #   best_buy  CONFIRMED — 425 laptop listings, verified seller match
+      #   acer      CONFIRMED — 210 laptop listings, verified seller match
+      #   dell      CONFIRMED — 102 laptop listings, verified seller match
+      #   bestbuy (no underscore), lenovo, lenovooutlet, msi_usa, asus,
+      #   hp_store, hpshopping, hp  — CONFIRMED WRONG, 0 genuine matches
+      #
+      # lenovo_us, msicomputerus, msiusa1, asus_us were inconclusive: the
+      # network this was tested from hit DNS instability and possible rate
+      # limiting mid-verification, so their true status is unknown rather
+      # than confirmed either way. Left out for now; the client-side check
+      # makes it safe to add them back speculatively if you want more
+      # coverage — a wrong guess just produces zero listings, it can no
+      # longer produce wrong ones.
       sellers:
-        - bestbuy
+        - best_buy
         - acer
-        - lenovo
         - dell
-        - msi_usa
       # Kept broad on purpose: we have already narrowed to a trusted seller,
       # so the hard filters can do the rest of the discriminating.
       queries:
