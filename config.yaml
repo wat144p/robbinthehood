@@ -512,6 +512,34 @@ sources:
       - hp_store
       - razer
 
+    # -- Storefront queries -------------------------------------------------
+    # Best Buy, Acer and Lenovo sell their open-box and certified-refurb stock
+    # through eBay, largely the same inventory their own sites carry. Querying
+    # the storefronts directly catches items a keyword search misses when a
+    # seller writes an unusual title.
+    #
+    # This is ALSO the workaround if you cannot get a Best Buy API key: Best
+    # Buy's own developer signup requires a US/Canada phone number, but their
+    # eBay storefront needs nothing beyond the eBay key you already have.
+    #
+    # WARNING: these usernames are unverified. eBay returns HTTP 418 to
+    # unauthenticated clients, so they could not be checked before your key
+    # exists. A storefront that returns nothing on any marketplace is logged
+    # with a loud warning naming it — check the real name at
+    # ebay.com/str/<name> in a browser and correct it here.
+    storefronts:
+      enabled: true
+      sellers:
+        - bestbuy
+        - acer
+        - lenovo
+        - dell
+        - msi_usa
+      # Kept broad on purpose: we have already narrowed to a trusted seller,
+      # so the hard filters can do the rest of the discriminating.
+      queries:
+        - "gaming laptop"
+
   # ---------------------------------------------------------------------------
   # Best Buy Developer API (US)
   # ---------------------------------------------------------------------------

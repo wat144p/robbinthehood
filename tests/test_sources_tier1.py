@@ -622,13 +622,31 @@ class TestHtmlSource:
         })
         assert HtmlSource(html_config, session=session, sleep=no_sleep).fetch() == []
 
-    def test_sites_ship_disabled_by_default(self, config):
-        """Selectors written without seeing live markup are fiction. Every
-        shipped site is opt-in after a --probe."""
+    def test_no_site_ships_enabled_with_unverified_selectors(self, config):
+        """Selectors written without seeing live markup are fiction, and a
+        scraper that silently returns zero looks exactly like 'no deals today'.
+
+        A site may only be enabled once its selectors have been confirmed with
+        `--probe` against the live page — which means they cannot be blank.
+        """
         for name, block in (config.raw_sources["html"]["sites"] or {}).items():
-            assert block.get("enabled", False) is False, (
-                f"{name} ships enabled — its selectors must be verified first"
-            )
+            if not block.get("enabled", False):
+                continue
+            selectors = block.get("selectors") or {}
+            for key in ("item", "title", "price", "url"):
+                assert (selectors.get(key) or "").strip(), (
+                    f"{name} is enabled but its {key!r} selector is empty — "
+                    f"verify it with `python run.py --probe {name}` first"
+                )
+
+    def test_unverified_sites_are_disabled(self, config):
+        """The converse: anything still carrying blank selectors stays off."""
+        for name, block in (config.raw_sources["html"]["sites"] or {}).items():
+            selectors = block.get("selectors") or {}
+            if not (selectors.get("item") or "").strip():
+                assert block.get("enabled", False) is False, (
+                    f"{name} has no item selector but is enabled"
+                )
 
     def test_probe_reports_what_the_selectors_actually_match(self, html_config):
         session = FakeFeedSession({

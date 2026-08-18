@@ -164,6 +164,9 @@ class EbaySource(Source):
 
         self._session = session
         self._token: _Token | None = None
+        #: seller -> listings found, so a mistyped storefront name is
+        #: reported rather than silently returning nothing.
+        self.storefront_hits: dict[str, int] = {}
 
     # -- session -----------------------------------------------------------
 
@@ -226,6 +229,76 @@ class EbaySource(Source):
                         continue
                     seen_ids.add(listing.listing_id)
                     listings.append(listing)
+
+        listings.extend(self._fetch_storefronts(seen_ids))
+        return listings
+
+    def _fetch_storefronts(self, seen_ids: set[str]) -> list[Listing]:
+        """Query named seller storefronts directly.
+
+        Best Buy, Acer, Lenovo and the large refurbishers all sell through
+        eBay, and it is largely the same open-box and certified-refurb stock
+        their own sites carry. That matters for two reasons: it is inventory a
+        keyword search can miss when a seller writes an unusual title, and it
+        is the only route to Best Buy's open-box pricing if you cannot get a
+        Best Buy API key.
+
+        Seller usernames cannot be verified without a live key — eBay returns
+        HTTP 418 to unauthenticated clients — so a storefront that produces
+        nothing anywhere is reported loudly rather than passed over. A silently
+        wrong username would look exactly like a quiet day.
+        """
+        block = self.settings.get("storefronts") or {}
+        if not block.get("enabled", False):
+            return []
+
+        sellers = [str(s).strip() for s in (block.get("sellers") or []) if str(s).strip()]
+        queries = block.get("queries") or ["gaming laptop"]
+        if not sellers:
+            return []
+
+        listings: list[Listing] = []
+        # Query each storefront separately rather than OR-ing them together, so
+        # a zero result can be attributed to a specific (probably mistyped) name.
+        for seller in sellers:
+            self.storefront_hits.setdefault(seller, 0)
+
+            for marketplace in self._active_marketplaces():
+                for query in queries:
+                    if self.budget.exhausted:
+                        log.warning("eBay budget exhausted during the storefront pass")
+                        return listings
+                    try:
+                        items = self._search(marketplace, query, sellers=[seller])
+                    except (SourceBlocked, SourceAuthError):
+                        raise
+                    except SourceError as exc:
+                        log.warning(
+                            "eBay storefront %s on %s failed: %s", seller, marketplace, exc
+                        )
+                        continue
+
+                    # Count what the storefront QUERY returned, not what
+                    # survived dedup: a storefront whose whole inventory the
+                    # keyword pass already found is working perfectly, and
+                    # must not be reported as a mistyped username.
+                    self.storefront_hits[seller] += len(items)
+
+                    for item in items:
+                        listing = self._to_listing(item, marketplace)
+                        if listing is None or listing.listing_id in seen_ids:
+                            continue
+                        seen_ids.add(listing.listing_id)
+                        listings.append(listing)
+
+        for seller, hits in self.storefront_hits.items():
+            if hits == 0:
+                log.warning(
+                    "eBay storefront %r returned nothing on any marketplace. The "
+                    "username is probably wrong — check it at "
+                    "ebay.com/str/%s and fix sources.ebay.storefronts.sellers.",
+                    seller, seller,
+                )
 
         return listings
 
@@ -291,8 +364,13 @@ class EbaySource(Source):
 
     # -- search ------------------------------------------------------------
 
-    def _search(self, marketplace: str, query: str) -> list[dict[str, Any]]:
-        """One query against one marketplace, paginated."""
+    def _search(
+        self, marketplace: str, query: str, sellers: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """One query against one marketplace, paginated.
+
+        `sellers` restricts the search to named storefronts.
+        """
         region, currency, country = MARKETPLACE_REGIONS[marketplace]
         token = self._get_token()
 
@@ -308,7 +386,7 @@ class EbaySource(Source):
                 "q": query,
                 "limit": limit,
                 "offset": page * limit,
-                "filter": self._build_filter(region, currency, country),
+                "filter": self._build_filter(region, currency, country, sellers),
                 "sort": "price",
             }
             headers = {
@@ -368,7 +446,10 @@ class EbaySource(Source):
 
         raise SourceError(f"eBay search failed after retries ({last_error})")
 
-    def _build_filter(self, region: Region, currency: str, country: str) -> str:
+    def _build_filter(
+        self, region: Region, currency: str, country: str,
+        sellers: list[str] | None = None,
+    ) -> str:
         """Build the Browse API `filter` parameter.
 
         Two constraints matter beyond the obvious:
@@ -391,6 +472,10 @@ class EbaySource(Source):
             # Auctions have no settled price to score, so fixed-price only.
             "buyingOptions:{FIXED_PRICE}",
         ]
+
+        if sellers:
+            clauses.append(f"sellers:{{{'|'.join(sellers)}}}")
+
         return ",".join(clauses)
 
     def _price_bounds_local(self, region: Region, currency: str) -> tuple[float, float]:

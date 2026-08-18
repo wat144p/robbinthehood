@@ -37,11 +37,16 @@ def make_source(config, rates, session, **kwargs) -> EbaySource:
 
 @pytest.fixture
 def single_query_config(config, monkeypatch):
-    """Trim the config to one query so request-count assertions stay readable."""
-    original = config.raw_sources["ebay"].get("queries")
-    config.raw_sources["ebay"]["queries"] = ["gaming laptop RTX 5070 Ti 32GB"]
+    """Trim to one query and no storefronts, so request-count assertions stay
+    readable. The storefront pass has its own tests below."""
+    ebay = config.raw_sources["ebay"]
+    original_queries = ebay.get("queries")
+    original_storefronts = ebay.get("storefronts")
+    ebay["queries"] = ["gaming laptop RTX 5070 Ti 32GB"]
+    ebay["storefronts"] = {"enabled": False}
     yield config
-    config.raw_sources["ebay"]["queries"] = original
+    ebay["queries"] = original_queries
+    ebay["storefronts"] = original_storefronts
 
 
 # ---------------------------------------------------------------------------
@@ -407,12 +412,126 @@ class TestFailureHandling:
 # ---------------------------------------------------------------------------
 
 
-def test_the_same_item_matching_several_queries_appears_once(config, rates):
+def test_the_same_item_matching_several_queries_appears_once(
+    single_query_config, rates
+):
     """Our queries deliberately overlap, so the same item comes back repeatedly."""
+    single_query_config.raw_sources["ebay"]["queries"] = [
+        "gaming laptop RTX 5070 Ti", "gaming laptop OLED 32GB",
+    ]
     session = FakeSession({"EBAY_US": search_response([item(item_id="v1|777|0")])})
-    listings = make_source(config, rates, session).fetch()
+    listings = make_source(single_query_config, rates, session).fetch()
 
     us_listings = [l for l in listings if l.listing_id == "v1|777|0"]
     assert len(us_listings) == 1
     # ...but it was genuinely searched for once per configured query.
-    assert len(session.filters_for("EBAY_US")) == len(config.raw_sources["ebay"]["queries"])
+    assert len(session.filters_for("EBAY_US")) == len(
+        single_query_config.raw_sources["ebay"]["queries"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Storefront queries
+# ---------------------------------------------------------------------------
+
+
+class TestStorefronts:
+    """Best Buy, Acer and Lenovo sell open-box stock through eBay. Querying
+    those storefronts directly is also the workaround for Best Buy's own API,
+    whose signup requires a US/Canada phone number."""
+
+    @pytest.fixture
+    def storefront_config(self, config):
+        ebay = config.raw_sources["ebay"]
+        original_q, original_s = ebay.get("queries"), ebay.get("storefronts")
+        ebay["queries"] = ["gaming laptop RTX 5070 Ti 32GB"]
+        ebay["storefronts"] = {
+            "enabled": True,
+            "sellers": ["bestbuy", "acer"],
+            "queries": ["gaming laptop"],
+        }
+        yield config
+        ebay["queries"], ebay["storefronts"] = original_q, original_s
+
+    def test_each_storefront_is_queried_with_a_sellers_filter(
+        self, storefront_config, rates
+    ):
+        session = FakeSession()
+        make_source(storefront_config, rates, session).fetch()
+
+        filters = session.filters_for("EBAY_US")
+        assert any("sellers:{bestbuy}" in f for f in filters)
+        assert any("sellers:{acer}" in f for f in filters)
+
+    def test_storefronts_are_queried_separately_not_or_ed_together(
+        self, storefront_config, rates
+    ):
+        """One combined `sellers:{a|b}` query would make a zero result
+        impossible to attribute to a specific mistyped username."""
+        session = FakeSession()
+        make_source(storefront_config, rates, session).fetch()
+
+        assert not any(
+            "sellers:{bestbuy|acer}" in f for f in session.filters_for("EBAY_US")
+        )
+
+    def test_storefront_listings_are_returned(self, storefront_config, rates):
+        session = FakeSession({
+            "EBAY_US": search_response([
+                item(item_id="v1|store|0", title=HELIOS, price="1184.00",
+                     condition_id="1500", seller="bestbuy", postal="19801")
+            ])
+        })
+        listings = make_source(storefront_config, rates, session).fetch()
+        assert any(l.listing_id == "v1|store|0" for l in listings)
+
+    def test_a_storefront_that_finds_nothing_is_reported(
+        self, storefront_config, rates, caplog
+    ):
+        """A mistyped username would otherwise look exactly like a quiet day.
+        The usernames could not be verified before a live key exists, so this
+        warning is the only thing standing between a typo and silent nothing."""
+        import logging
+
+        session = FakeSession()   # every marketplace returns nothing
+        with caplog.at_level(logging.WARNING):
+            make_source(storefront_config, rates, session).fetch()
+
+        warnings = " ".join(r.getMessage() for r in caplog.records)
+        assert "bestbuy" in warnings
+        assert "username is probably wrong" in warnings
+
+    def test_a_storefront_with_results_is_not_warned_about(
+        self, storefront_config, rates, caplog
+    ):
+        import logging
+
+        session = FakeSession({
+            "EBAY_US": search_response([item(item_id="v1|s|0", seller="bestbuy")])
+        })
+        source = make_source(storefront_config, rates, session)
+        with caplog.at_level(logging.WARNING):
+            source.fetch()
+
+        assert source.storefront_hits["bestbuy"] > 0
+        assert not [
+            r for r in caplog.records if "probably wrong" in r.getMessage()
+        ]
+
+    def test_disabling_storefronts_skips_the_pass(self, storefront_config, rates):
+        storefront_config.raw_sources["ebay"]["storefronts"]["enabled"] = False
+        session = FakeSession()
+        make_source(storefront_config, rates, session).fetch()
+
+        assert not any("sellers:" in f for f in session.filters_for("EBAY_US"))
+
+    def test_storefront_items_are_not_duplicated_from_the_keyword_pass(
+        self, storefront_config, rates
+    ):
+        """The same Best Buy item matches both a keyword query and its
+        storefront query."""
+        session = FakeSession({
+            "EBAY_US": search_response([item(item_id="v1|dup|0", seller="bestbuy")])
+        })
+        listings = make_source(storefront_config, rates, session).fetch()
+        assert [l.listing_id for l in listings].count("v1|dup|0") == 1
