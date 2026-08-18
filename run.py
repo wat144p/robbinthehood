@@ -22,6 +22,7 @@ import sys
 from datetime import datetime, timezone
 
 from dealhunter import load_config
+from dealhunter.config import Config
 from dealhunter.discovery import SourceDiscovery
 from dealhunter.evaluate import evaluate_all
 from dealhunter.fx import FxService
@@ -128,7 +129,6 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # Imported here so `--help` doesn't pay for the source machinery.
-    from dealhunter.sources import build_sources, collect_listings, run_sources
     from dealhunter.sources.html import HtmlSource
 
     config = load_config(args.config)
@@ -151,6 +151,40 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {key:<14} {value:,}")
         store.close()
         return 0
+
+    # Everything from here on can fail loudly and still leave a diagnosable
+    # trail: `run_id` already has a row (from start_run() above) with no
+    # finished_at yet, and it would otherwise stay that way forever if
+    # anything below raised — indistinguishable in the database from a run
+    # that got killed by GitHub Actions' timeout mid-flight, with no clue
+    # which one happened or why. This wrapper cannot catch an external SIGKILL
+    # (nothing in Python can), but it does catch any ordinary exception,
+    # record it in the run's notes, and still re-raise so CI shows the run as
+    # failed rather than silently green.
+    try:
+        return _run_once(args, config, store, run_id)
+    except Exception as exc:  # noqa: BLE001 — deliberately broad, see above
+        log.exception("Run %s crashed", run_id)
+        try:
+            store.finish_run(
+                run_id, notes=f"CRASHED: {type(exc).__name__}: {exc}"[:1000]
+            )
+        except Exception:  # noqa: BLE001 — the crash note is best-effort too
+            log.exception("Could not even record the crash in the database")
+        raise
+    finally:
+        store.close()
+
+
+def _run_once(args, config: Config, store: Store, run_id: int) -> int:
+    """Everything from fetching sources through closing out the run.
+
+    Split out of `main()` purely so that function can wrap this whole body in
+    one try/except/finally without a deep reindent — see the comment there.
+    """
+    # Deferred so `--help` and `--probe` (handled in main() before this
+    # function is ever called) don't pay for the source machinery import.
+    from dealhunter.sources import build_sources, collect_listings, run_sources
 
     # -- FX ------------------------------------------------------------------
     fx_service = FxService.from_config(config)
@@ -299,7 +333,8 @@ def main(argv: list[str] | None = None) -> int:
         store.vacuum()
         print(f"\nPruned {removed} old price points and compacted the database.")
 
-    store.close()
+    # store.close() happens in main()'s `finally`, not here — this function
+    # can raise on the way out, and that close() must still run either way.
 
     # Exit non-zero only when every source failed — a partial run is a success,
     # which is the whole point of isolating source failures.

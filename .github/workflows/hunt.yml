@@ -35,7 +35,16 @@ permissions:
 jobs:
   hunt:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 20 was too tight for the FIRST run specifically: source discovery only
+    # runs once a month, and that one-time pass (harvesting subreddit
+    # sidebars/wikis plus evaluating each candidate, all rate-limited) stacks
+    # on top of eBay's own ~60-90s across 5 marketplaces. A run genuinely
+    # killed by this timeout leaves its database row half-written (started,
+    # never finished) with no error message anywhere — run.py now at least
+    # records a crash reason for an ordinary exception, but an external
+    # timeout kill can't be caught by any amount of Python code, so the real
+    # fix is headroom.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
