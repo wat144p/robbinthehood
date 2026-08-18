@@ -2,24 +2,17 @@ _comment: Discovered by the monthly source-discovery pass. Nothing here is activ
   To enable one, set its status to 'approved', then add a matching entry under sources.rss.feeds
   or sources.html.sites in config.yaml. Setting status to 'rejected' stops it being
   resurfaced next month.
-last_run: '2026-08-18T15:17:58.923901+00:00'
+last_run: '2026-08-18T15:55:46.189951+00:00'
 candidates:
 - url: https://www.pcgamer.com/gaming-laptop-deals
-  name: Best deals on gaming laptops | PC Gamer
+  name: ''
   discovered_from: config seed
-  confidence: 1.0
-  regions:
-  - AU
-  - BE
-  - CA
-  - DE
-  - GB
-  - SE
-  - US
-  feed_url: https://www.pcgamer.com/uk/feeds.xml
-  robots_allows: true
-  has_prices: true
-  notes: has an RSS feed — can be added as an rss source
+  confidence: 0.0
+  regions: []
+  feed_url: null
+  robots_allows: false
+  has_prices: false
+  notes: robots.txt disallows crawling
   first_seen: '2026-08-17'
   status: pending
 - url: https://findmelaptop.com/gaming-laptop-deals

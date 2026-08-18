@@ -87,7 +87,15 @@ class Candidate:
     first_seen: str = ""
     status: str = "pending"     # pending | approved | rejected — you set this
 
+    @property
+    def is_unreachable(self) -> bool:
+        """True when this was never actually evaluated — a network failure,
+        not a genuine 'this site isn't worth adding' assessment."""
+        return self.notes.startswith("unreachable")
+
     def summary(self) -> str:
+        if self.is_unreachable:
+            return f"{self.url} — could not reach it (network issue, not evaluated)"
         regions = ",".join(self.regions) or "region unclear"
         feed = " (has RSS)" if self.feed_url else ""
         return f"{self.name or self.url} — {regions}, confidence {self.confidence:.2f}{feed}"
@@ -163,7 +171,26 @@ class SourceDiscovery:
                 log.debug("Could not evaluate %s: %s", candidate.url, exc)
 
         merged = self._merge_and_save(evaluated)
-        return [c for c in merged if c.status == "pending"]
+        pending = [c for c in merged if c.status == "pending"]
+
+        # If every single candidate this pass came back unreachable, the
+        # network was down for the whole pass, not genuinely evaluated as
+        # low-value. Surfacing three "new sources found!" lines in the digest
+        # over a DNS outage would be actively misleading. Everything is still
+        # saved above (still marked pending), so a healthy pass retries them
+        # properly next time — this only affects what gets reported NOW.
+        if evaluated and all(c.is_unreachable for c in evaluated):
+            log.warning(
+                "Source discovery could not reach any of %d candidate(s) this "
+                "pass — looks like a network outage, not a real evaluation. "
+                "Nothing surfaced for approval; will retry next scheduled pass.",
+                len(evaluated),
+            )
+            return []
+
+        # A partial outage still shouldn't surface the unreachable ones
+        # individually as if they were assessed — just the genuine finds.
+        return [c for c in pending if not c.is_unreachable]
 
     def _already_known(self, url: str) -> bool:
         """Skip anything we already ingest — no point rediscovering OzBargain.
@@ -221,8 +248,19 @@ class SourceDiscovery:
         candidate.robots_allows = self.robots.is_allowed(candidate.url)
 
         if not candidate.robots_allows:
-            candidate.confidence = 0.0
-            candidate.notes = "robots.txt disallows crawling"
+            # RobotsCache treats "could not fetch robots.txt at all" (DNS
+            # down, host unreachable) and "fetched it, and it says no" as the
+            # SAME conservative deny — correctly, for the purpose of deciding
+            # whether to proceed. But those are very different things to
+            # report back: one is a real finding, the other is "we could not
+            # check." A candidate we could not even reach is not a genuine
+            # evaluation and must not be surfaced as one — see run().
+            if self._is_network_failure(candidate.url):
+                candidate.confidence = 0.0
+                candidate.notes = "unreachable: could not connect"
+            else:
+                candidate.confidence = 0.0
+                candidate.notes = "robots.txt disallows crawling"
             return candidate
 
         try:
@@ -260,6 +298,29 @@ class SourceDiscovery:
         candidate.notes = self._notes(candidate)
         self._sleep(self.policy.request_delay_seconds)
         return candidate
+
+    def _is_network_failure(self, url: str) -> bool:
+        """Was robots.txt actually fetched and found to say no, or could we
+        just not reach the host at all?
+
+        RobotsCache does not expose this distinction — by design, both cases
+        deny conservatively. This does one extra GET, only for candidates
+        that were denied, which is a small minority of a monthly pass, purely
+        to report the right reason back rather than to change any decision.
+        """
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+        try:
+            self.session.get(
+                robots_url,
+                headers={"User-Agent": self.policy.user_agent},
+                timeout=self.policy.timeout_seconds,
+            )
+            return False    # got SOME response — a real disallow, not a network failure
+        except Exception:  # noqa: BLE001
+            return True
 
     def _score(self, candidate: Candidate, lowered: str) -> float:
         """Confidence, 0-1. Weighted toward things that make ingestion cheap."""

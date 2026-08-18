@@ -218,3 +218,119 @@ class TestApprovalGate:
 
         assert "Nothing here is active" in payload["_comment"]
         assert "approved" in payload["_comment"]
+
+
+# ---------------------------------------------------------------------------
+# Network outages during a discovery pass
+# ---------------------------------------------------------------------------
+#
+# RobotsCache treats "could not fetch robots.txt at all" (DNS down, host
+# unreachable) and "fetched it, and it genuinely says no" identically — both
+# are a conservative deny, correctly, for deciding whether to proceed. But
+# reported back to a person, those are very different things: one is a real
+# finding worth reviewing, the other is "we learned nothing this pass." A
+# total outage must not show up in the digest as three freshly "discovered"
+# sources, or a DNS hiccup during the monthly pass looks like real signal.
+# ---------------------------------------------------------------------------
+
+
+class NetworkDownSession:
+    """Every request raises, simulating a total DNS/connectivity outage."""
+
+    def get(self, *args, **kwargs):
+        raise ConnectionError("Failed to resolve host (simulated outage)")
+
+    def post(self, *args, **kwargs):
+        raise ConnectionError("Failed to resolve host (simulated outage)")
+
+
+class TestNetworkOutageDuringDiscovery:
+    def test_a_total_outage_surfaces_nothing_for_approval(self, discovery_config):
+        discovery = SourceDiscovery(
+            discovery_config, session=NetworkDownSession(), sleep=lambda _s: None
+        )
+        assert discovery.run() == []
+
+    def test_a_total_outage_still_saves_candidates_for_a_later_retry(
+        self, discovery_config
+    ):
+        """Nothing is surfaced NOW, but the candidate must not be lost —
+        a healthy pass next month should still pick it up and evaluate it
+        properly, not treat it as already-seen-and-rejected."""
+        discovery = SourceDiscovery(
+            discovery_config, session=NetworkDownSession(), sleep=lambda _s: None
+        )
+        discovery.run()
+
+        saved = {c.url: c for c in discovery.load_existing()}
+        entry = saved["https://tracker.test"]
+        assert entry.status == "pending"
+        assert entry.is_unreachable is True
+
+    def test_an_unreachable_candidate_is_not_confused_with_a_real_robots_disallow(
+        self, discovery_config
+    ):
+        """The bug this guards against: RobotsCache returning False for both
+        reasons must not make a network outage look like a genuine
+        'robots.txt says no' finding."""
+        discovery = SourceDiscovery(
+            discovery_config, session=NetworkDownSession(), sleep=lambda _s: None
+        )
+        discovery.run()
+
+        entry = {c.url: c for c in discovery.load_existing()}["https://tracker.test"]
+        assert entry.notes.startswith("unreachable")
+        assert "disallow" not in entry.notes
+
+    def test_a_genuine_robots_disallow_is_still_reported_as_such(
+        self, discovery_config
+    ):
+        """The converse: when robots.txt is actually fetched and says no,
+        that IS a real finding and must still be reported as one."""
+        session = FakeFeedSession({
+            "robots.txt": FakeResponse(200, b"User-agent: *\nDisallow: /\n"),
+        })
+        discovery = SourceDiscovery(discovery_config, session=session,
+                                    sleep=lambda _s: None)
+        discovery.run()
+
+        entry = {c.url: c for c in discovery.load_existing()}["https://tracker.test"]
+        assert entry.notes == "robots.txt disallows crawling"
+        assert entry.is_unreachable is False
+
+    def test_a_partial_outage_only_surfaces_the_reachable_candidates(
+        self, discovery_config, tmp_path
+    ):
+        """One candidate's host is up, another's is down. Only the genuine
+        finding should be surfaced; the unreachable one stays quiet this pass."""
+        discovery_config.raw_sources["discovery"]["seed_candidates"] = [
+            "https://tracker.test", "https://down.test",
+        ]
+        session = FakeFeedSession({
+            "robots.txt": ROBOTS_ALLOW_ALL,
+            "tracker.test": FakeResponse(200, TRACKER_HTML.encode()),
+            # "down.test" has no route, so FakeFeedSession's default (404)
+            # would normally apply — force a real connection-level exception
+            # instead by pointing it at a session that explodes for that host.
+        })
+
+        real_get = session.get
+
+        def get_with_outage(url, *args, **kwargs):
+            if "down.test" in url and "robots.txt" not in url:
+                raise ConnectionError("simulated outage for this host only")
+            return real_get(url, *args, **kwargs)
+
+        session.get = get_with_outage
+        discovery = SourceDiscovery(discovery_config, session=session,
+                                    sleep=lambda _s: None)
+
+        pending = discovery.run()
+
+        assert len(pending) == 1
+        assert pending[0].url == "https://tracker.test"
+
+    def test_summary_explains_unreachable_plainly(self):
+        candidate = Candidate(url="https://x.test", notes="unreachable: ConnectionError")
+        assert "could not reach" in candidate.summary()
+        assert "network issue" in candidate.summary()
